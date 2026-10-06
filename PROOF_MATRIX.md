@@ -2,7 +2,7 @@
 
 Pinned source snapshot:
 
-`ores-truffle-oreslang/oreslang-source.java@1d68c0e2f7352c6c824b8fc40f6722be12fcb8e4`
+`ores-truffle-oreslang/oreslang-source.java@e8f874d02fd09b2fd0092691be14f23ab5be9aef`
 
 This is the PR #269 concurrency-contract head, stacked directly on the ActorGroup event-bus head and including the channel/select/mailbox work from PR #252.
 
@@ -38,11 +38,11 @@ Already-ready operations work. A genuinely pending blocking operation currently 
 
 The PR #269 snapshot implements and tests both `nb writech` -> `Future<void>` and the void `nb cb writech ... || -> { ... }` callback surface. The callback path is required to re-enter through the owning actor scheduler lease rather than execute inline on the producer/channel-completion thread.
 
-### 3. Untrusted actors
+### 3. Untrusted actors — partial runtime proof; hard-isolate boundary still open
 
-The pinned #255/#252 runtime has only `PRIVATE` and `SHARED` `ActorKind` values. The separate actor-class hardening stack discusses `UNTRUSTED`, but it is not converged into this source snapshot.
+The pinned #269 head now has first-class `UNTRUSTED` actor syntax, zero-capability admission, data-only inbound messaging, a separate untrusted dispatcher, CPU/fuel safepoints, and structured force-cancellation APIs. `UntrustedActorTest` and `ActorStructuredCancellationTest` exercise those contracts.
 
-**Required proof:** untrusted actors execute on an independently bulkheaded pool/isolation domain and host force-cancel revokes that isolation boundary before logical teardown.
+**Still required before claiming the high-assurance model complete:** execute untrusted actors inside the intended independently revocable Graal/Wasm isolate (or stronger external-process boundary) and prove host force-cancel revokes that physical isolation boundary before logical teardown.
 
 ### 4. ActorMailman
 

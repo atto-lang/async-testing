@@ -36,7 +36,7 @@ jobs:
       - name: Run focused concurrency contract with Java carriers
         run: >
           mvn -B -DtrimStackTrace=false -Dores.runtime.carriers=java
-          -Dtest=OresVMTest,OresSchedulerTest,ChannelRuntimeTest,ActorEventBusTest,ChannelSelectSyntaxTest,ConcurrencySyntaxContractTest
+          -Dtest=OresVMTest,OresSchedulerTest,ChannelRuntimeTest,ActorEventBusTest,ChannelSelectSyntaxTest,ConcurrencySyntaxContractTest,ConcurrencyContractProofTest,UntrustedActorTest
           test
 
       - name: Run full proof suite including native carrier coverage

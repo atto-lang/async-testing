@@ -18,6 +18,6 @@ The proof branch is pinned to the active integrated concurrency stack through PR
 PR #252 (channels/select/mailbox/cancellation), PR #255 (ActorGroup event bus), and
 PR #269 (VM root scheduler bootstrap, Future<void> nb writech, and nb cb writech).
 
-Source snapshot: `ores-truffle-oreslang/oreslang-source.java@1d68c0e2f7352c6c824b8fc40f6722be12fcb8e4`.
+Source snapshot: `ores-truffle-oreslang/oreslang-source.java@e8f874d02fd09b2fd0092691be14f23ab5be9aef`.
 
 See `PROOF_MATRIX.md` on the proof branch for the required invariants and known gaps.
