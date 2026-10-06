@@ -263,6 +263,47 @@ final class ConcurrencyIntegrationProofTest {
         }
     }
 
+
+    @Test
+    void untrustedActorsUseAnIndependentBulkheadedDispatcher() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime(
+                IsolatePolicy.developer(),
+                new ActorRuntime.DispatcherConfig(1, 1, 8))) {
+            CountDownLatch done = new CountDownLatch(3);
+            AtomicReference<Thread> sharedThread = new AtomicReference<>();
+            AtomicReference<Thread> privateThread = new AtomicReference<>();
+            AtomicReference<Thread> untrustedThread = new AtomicReference<>();
+            AtomicReference<ActorRuntime.ActorKind> untrustedKind = new AtomicReference<>();
+
+            ActorRuntime.ActorRef<String> shared = runtime.spawnShared(() -> (message, context) -> {
+                sharedThread.set(Thread.currentThread());
+                done.countDown();
+                context.self().stop();
+            });
+            ActorRuntime.ActorRef<String> isolated = runtime.spawnPrivate(() -> (message, context) -> {
+                privateThread.set(Thread.currentThread());
+                done.countDown();
+                context.self().stop();
+            });
+            ActorRuntime.ActorRef<String> untrusted = runtime.spawnUntrusted(() -> (message, context) -> {
+                assertTrue(ActorRuntime.isActorCarrierThread());
+                untrustedThread.set(Thread.currentThread());
+                untrustedKind.set(context.kind());
+                done.countDown();
+                context.self().stop();
+            });
+
+            shared.send("go");
+            isolated.send("go");
+            untrusted.send("go");
+
+            assertTrue(done.await(2, TimeUnit.SECONDS));
+            assertEquals(ActorRuntime.ActorKind.UNTRUSTED, untrustedKind.get());
+            assertNotSame(sharedThread.get(), untrustedThread.get());
+            assertNotSame(privateThread.get(), untrustedThread.get());
+        }
+    }
+
     @Test
     void cancellingActorDetachesOutstandingChannelContinuation() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime(
