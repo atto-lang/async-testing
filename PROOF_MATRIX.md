@@ -62,7 +62,10 @@ Local validation on macOS arm64 / Homebrew JDK 25: 169 harness tests passed
 with the matching JNI carrier library, no failures/errors/skips. Optimizing
 Graal/JVMCI execution is not claimed. The broader upstream compiler suite ran
 606 tests with one pre-existing mixed Java bridge failure; the same test failed
-with the unmodified parent compiler source. Remote CI is separate evidence.
+with the unmodified parent compiler source. Ten sequential repeated runs passed: 170 combined-test executions and 10,000
+completion/stop cycles. Remote CI run 37415313975 did not execute any job: GitHub
+reported failed recent payments or a spending-limit restriction. Linux/JDK 21
+validation remains outstanding; this is not a CI test failure.
 
 ## Contract gaps this harness must not pretend are solved
 
