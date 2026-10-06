@@ -18,7 +18,7 @@ The current proof branch tracks the active convergence work in
 `oreslang-source.java` PR #269.
 
 Pinned concurrency source:
-`ores-truffle-oreslang/oreslang-source.java@8aef043fa8257c1aece5cb030bd4620cca10bbaa`.
+`ores-truffle-oreslang/oreslang-source.java@c339e0a9bb093d1e52451545ba158557d6cafdaa`.
 
 The harness also retains its own proven fixes from PR #2 for Darwin pthread
 declarations, closed channel/subscription teardown, `Future<void>` typing, and
