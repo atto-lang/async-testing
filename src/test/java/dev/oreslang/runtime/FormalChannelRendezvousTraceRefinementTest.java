@@ -63,7 +63,8 @@ final class FormalChannelRendezvousTraceRefinementTest {
         readChannel.close();
 
         assertThrows(RuntimeException.class, pendingRead::join);
-        assertFalse(readChannel.tryWrite("closed"));
+        assertThrows(RuntimeException.class, () -> readChannel.tryWrite("closed"),
+                "closed channel must reject later write admission");
 
         ChannelRuntime.Channel<String> writeChannel = new ChannelRuntime.Channel<>(0);
         OresFuture<Void> pendingWrite = writeChannel.writeAsync("pending");
