@@ -2,7 +2,7 @@
 
 Pinned concurrency source stack:
 
-`ores-truffle-oreslang/oreslang-source.java@8aef043fa8257c1aece5cb030bd4620cca10bbaa`
+`ores-truffle-oreslang/oreslang-source.java@c339e0a9bb093d1e52451545ba158557d6cafdaa`
 
 That is PR #269, which converges the VM-root scheduler, channels, callback write
 surface, untrusted actors, and the ActorGroup/event-bus stack. Harness-local
