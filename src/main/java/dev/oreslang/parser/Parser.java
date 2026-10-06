@@ -13,6 +13,7 @@ public final class Parser {
     private final List<Token> tokens;
     private int current;
     private boolean suppressRefinementOperators;
+    private boolean stopAtEmptyPipeLambda;
 
     public Parser(List<Token> tokens) {
         this.tokens = List.copyOf(tokens);
@@ -802,6 +803,7 @@ public final class Parser {
     }
 
     private Ast.Stmt parseStatement() {
+        if (looksLikeNbCallbackWriteStatement()) return parseNbCallbackWriteStatement();
         if (looksLikeStaticSelectStatement()) return parseStaticSelectStatement();
         if (looksLikeImmediateChannelExpression()) {
             Ast.Expr expression = parseExpression();
@@ -850,6 +852,39 @@ public final class Parser {
         Ast.Expr expression = parseExpression();
         consumeStatementTerminator("expression statement should end with ';'");
         return new Ast.ExprStmt(expression);
+    }
+
+    private boolean looksLikeNbCallbackWriteStatement() {
+        return check(NB)
+                && current + 2 < tokens.size()
+                && tokens.get(current + 1).type() == CB
+                && tokens.get(current + 2).type() == WRITECH;
+    }
+
+    private Ast.NbWriteCallbackStmt parseNbCallbackWriteStatement() {
+        consume(NB, "expected 'nb'");
+        consume(CB, "expected 'cb' after 'nb'");
+        consume(WRITECH, "'nb cb' currently supports writech only");
+
+        Ast.Expr channel = parseUnary();
+        consume(COMMA, "nb cb writech requires 'channel, value || -> { ... }'");
+
+        boolean previousStop = stopAtEmptyPipeLambda;
+        stopAtEmptyPipeLambda = true;
+        Ast.Expr value;
+        try {
+            value = parseExpression();
+        } finally {
+            stopAtEmptyPipeLambda = previousStop;
+        }
+
+        if (!isEmptyPipeLambdaStart()) {
+            throw error(peek(),
+                    "nb cb writech requires a zero-argument callback written '|| -> { ... }'");
+        }
+        Ast.LambdaExpr callback = parsePipeLambda(false);
+        consumeStatementTerminator("nb cb writech callback should end with ';'");
+        return new Ast.NbWriteCallbackStmt(channel, value, callback);
     }
 
     private boolean looksLikeImmediateChannelExpression() {
@@ -1488,7 +1523,10 @@ public final class Parser {
 
     private Ast.Expr parseLogicalOr() {
         Ast.Expr expr = parseLogicalXor();
-        while (matchAdjacentPair(PIPE)) expr = new Ast.BinaryExpr("||", expr, parseLogicalXor());
+        while (!(stopAtEmptyPipeLambda && isEmptyPipeLambdaStart())
+                && matchAdjacentPair(PIPE)) {
+            expr = new Ast.BinaryExpr("||", expr, parseLogicalXor());
+        }
         return expr;
     }
 
@@ -1777,7 +1815,7 @@ public final class Parser {
             case IDENT,
                     DEFINE, CLASS, MODULE, NAMESPACE, IMPORT, FROM, AS, EXTENDS, IMPLEMENTS,
                     TRY, CATCH, FINALLY, END, FI, IF, DO, ELSE, THEN,
-                    NEW, STOP, DONE, AWAIT, ASYNC, NLEX, NB, SELECT, READCH, WRITECH, ACTOR, SHARED, DEF, FNC, ROUTINE, FOR, OF, LOOP, BLOCK, BREAK, CONTINUE, YIELD, SUPER, ELSEIF, SWITCH, MATCH, MATCHES, IS, WHEN, CASE, DEFAULT, FIRST, TYPE, TYPEOF,
+                    NEW, STOP, DONE, AWAIT, ASYNC, NLEX, NB, CB, SELECT, READCH, WRITECH, ACTOR, SHARED, DEF, FNC, ROUTINE, FOR, OF, LOOP, BLOCK, BREAK, CONTINUE, YIELD, SUPER, ELSEIF, SWITCH, MATCH, MATCHES, IS, WHEN, CASE, DEFAULT, FIRST, TYPE, TYPEOF,
                     INTERFACE, IMPL, ABSTRACT, VOID, STATIC, PUB, PRIVATE, STRUCTURAL, RETURN, DEFER,
                     VAL, CONST, LET, MUT, SELF, TRUE, FALSE, NULL, OBJ, ARR -> true;
             default -> false;
@@ -2001,6 +2039,12 @@ public final class Parser {
                 && tokens.get(current).type() == type
                 && tokens.get(current + 1).type() == type
                 && adjacent(tokens.get(current), tokens.get(current + 1));
+    }
+
+    private boolean isEmptyPipeLambdaStart() {
+        return current + 2 < tokens.size()
+                && checkAdjacentPair(PIPE)
+                && tokens.get(current + 2).type() == ARROW;
     }
 
     private boolean matchAdjacentPair(Token.Type type) {
