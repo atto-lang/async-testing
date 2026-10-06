@@ -33,3 +33,22 @@ mvn -B -Dtest=FormalRuntimeTraceRefinementTest test
 ```
 
 The formal/refinement tests intentionally use the same pinned runtime/compiler snapshot as the rest of this repository.
+
+
+## Lifecycle refinement
+
+`FormalLifecycleTraceRefinementTest` connects the abstract lifecycle models to
+the pinned real runtime:
+
+- actor-domain retirement cleans an actor-owned host resource even when a stale
+  host reference keeps its owner reachable, and later sweeps cannot double-clean;
+- a failed explicit cleanup remains retryable and becomes idempotent after its
+  successful retry;
+- graceful root stop cancels a structured child/grandchild tree without orphans;
+- child lifecycle authority cannot flow upward to cancel its parent;
+- force kill presents the revoker with the complete three-node subtree and all
+  three nodes terminate cancelled.
+
+Ownership/proxy trace refinement remains intentionally deferred until the
+allocation-domain/allocator-lowering stack is reconciled onto the runtime pinned
+by this repository.
