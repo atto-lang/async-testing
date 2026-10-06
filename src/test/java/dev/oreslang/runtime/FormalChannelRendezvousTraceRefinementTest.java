@@ -71,6 +71,7 @@ final class FormalChannelRendezvousTraceRefinementTest {
         writeChannel.close();
 
         assertThrows(RuntimeException.class, pendingWrite::join);
-        assertTrue(writeChannel.tryRead().isEmpty());
+        assertThrows(RuntimeException.class, writeChannel::tryRead,
+                "closed channel must reject later read admission");
     }
 }
