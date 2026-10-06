@@ -21,7 +21,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Read upstream compiler pin
         id: compiler
@@ -29,13 +29,13 @@ jobs:
 
       # A source-only mirror lives in this repository. The default GITHUB_TOKEN
       # can read it; scripts/test.sh verifies its exact upstream source tree.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: compiler-mirror/${{ steps.compiler.outputs.revision }}
           path: .compiler
           persist-credentials: false
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
         with:
           distribution: temurin
           java-version: ${{ matrix.java }}
