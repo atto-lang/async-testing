@@ -11,7 +11,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
+@Timeout(10)
 final class ConcurrencyIntegrationProofTest {
 
     @Test
@@ -22,6 +24,7 @@ final class ConcurrencyIntegrationProofTest {
             AtomicLong firstDispatch = new AtomicLong();
             AtomicReference<Thread> producer = new AtomicReference<>();
             AtomicReference<Thread> firstCarrier = new AtomicReference<>();
+            CountDownLatch armed = new CountDownLatch(1);
 
             OresFuture<Integer> result = scheduler.start(resume -> {
                 assertSame(scheduler, OresScheduler.current());
@@ -29,7 +32,9 @@ final class ConcurrencyIntegrationProofTest {
                 if (step == 0) {
                     firstDispatch.set(OresScheduler.currentDispatchId());
                     firstCarrier.set(Thread.currentThread());
-                    return OresScheduler.await(channel.readAsync());
+                    OresFuture<Integer> pending = channel.readAsync();
+                    armed.countDown();
+                    return OresScheduler.await(pending);
                 }
 
                 assertNotEquals(firstDispatch.get(), OresScheduler.currentDispatchId(),
@@ -42,11 +47,13 @@ final class ConcurrencyIntegrationProofTest {
                 return OresScheduler.done(((Integer) resume.value()) + 1);
             });
 
+            assertTrue(armed.await(2, TimeUnit.SECONDS));
             Thread writer = Thread.ofPlatform().name("proof-channel-producer").start(() -> {
                 producer.set(Thread.currentThread());
                 assertTrue(channel.tryWrite(41));
             });
-            writer.join();
+            writer.join(2_000);
+            assertFalse(writer.isAlive());
 
             assertEquals(42, result.get(5, TimeUnit.SECONDS));
             assertEquals(2, pc.get());
@@ -204,9 +211,10 @@ final class ConcurrencyIntegrationProofTest {
                 publisher.set(Thread.currentThread());
                 ActorEventBus.PublishReceipt receipt =
                         group.events().publishSystem("proof", "event");
-                receipt.completion().join();
+                assertDoesNotThrow(() -> receipt.completion().get(2, TimeUnit.SECONDS));
             });
-            producer.join();
+            producer.join(3_000);
+            assertFalse(producer.isAlive(), "publisher completion must not hang");
 
             assertTrue(delivered.await(2, TimeUnit.SECONDS));
             assertEquals("event", value.get());

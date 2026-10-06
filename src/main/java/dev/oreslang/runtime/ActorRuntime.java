@@ -3624,9 +3624,8 @@ public final class ActorRuntime implements AutoCloseable {
 
                 int processed = 0;
                 while (processed < dispatcherConfig.throughput() && !stopped.get()) {
-                    MessageEnvelope envelope = mailbox.tryRead().orElse(null);
+                    MessageEnvelope envelope = pollMailboxEnvelope();
                     if (envelope == null) break;
-                    releaseMailboxSlot();
                     try (envelope) {
                         if (envelope.isContinuation()) {
                             envelope.continuation().run();
@@ -3667,9 +3666,19 @@ public final class ActorRuntime implements AutoCloseable {
 
         private void drainMailboxReservations() {
             MessageEnvelope envelope;
-            while ((envelope = mailbox.tryRead().orElse(null)) != null) {
-                releaseMailboxSlot();
+            while ((envelope = pollMailboxEnvelope()) != null) {
                 envelope.close();
+            }
+        }
+
+        private MessageEnvelope pollMailboxEnvelope() {
+            synchronized (lifecycleLock) {
+                // Mailboxes are buffered channels. Serialize dequeue with close
+                // and teardown so a closed, drained mailbox is never probed.
+                if (mailbox.isEmpty()) return null;
+                MessageEnvelope envelope = mailbox.tryRead().orElseThrow();
+                releaseMailboxSlot();
+                return envelope;
             }
         }
 
