@@ -70,11 +70,9 @@ final class FormalRuntimeTraceRefinementTest {
     }
 
     @Test
-    void cancellingSelectDoesNotConsumeBufferedCases() {
+    void cancellingUnreadySelectDetachesEveryRegistrationWithoutConsumingLaterValues() {
         ChannelRuntime.Channel<String> first = new ChannelRuntime.Channel<>(1);
         ChannelRuntime.Channel<String> second = new ChannelRuntime.Channel<>(1);
-        assertTrue(first.tryWrite("first"));
-        assertTrue(second.tryWrite("second"));
 
         Map<String, ChannelRuntime.SelectCase> cases = new LinkedHashMap<>();
         cases.put("first", ChannelRuntime.read(first));
@@ -83,20 +81,14 @@ final class FormalRuntimeTraceRefinementTest {
         OresFuture<ChannelRuntime.SelectResult> pending =
                 ChannelRuntime.SelectSet.fromMap(cases).selectAsync();
 
-        // A buffered select may already settle immediately. If it has, the
-        // single-winner property is covered above. If cancellation wins first,
-        // neither waiter is allowed to consume a value.
-        if (pending.cancel(false)) {
-            assertEquals(Optional.of("first"), first.tryRead());
-            assertEquals(Optional.of("second"), second.tryRead());
-        } else {
-            assertTrue(pending.isDone());
-            int remaining = 0;
-            remaining += remainsReady(first) ? 1 : 0;
-            remaining += remainsReady(second) ? 1 : 0;
-            assertEquals(1, remaining,
-                    "a settled select consumes exactly one buffered value");
-        }
+        assertFalse(pending.isDone(), "empty buffered channels must leave select pending");
+        assertTrue(pending.cancel(false), "cancellation must win before any case is ready");
+
+        assertTrue(first.tryWrite("first"));
+        assertTrue(second.tryWrite("second"));
+        assertEquals(Optional.of("first"), first.tryRead());
+        assertEquals(Optional.of("second"), second.tryRead());
+        assertTrue(pending.isCancelled());
     }
 
     private static boolean remainsReady(ChannelRuntime.Channel<?> channel) {
