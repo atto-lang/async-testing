@@ -14,7 +14,7 @@ The compiler/runtime repo owns small executable state models. This repo runs the
 - exactly one ready channel is consumed;
 - every other ready channel remains unconsumed.
 
-It also covers the cancellation race: if cancellation wins, buffered cases remain untouched; if arbitration wins first, exactly one value was consumed.
+It also proves cancellation deterministically on an unready select: cancellation detaches every registration, and values written afterward remain available to ordinary readers.
 
 This complements the existing scheduler/actor/channel proofs, which establish carrier ownership, mailbox re-entry, cancellation, bulkheads, and bounded progress.
 
