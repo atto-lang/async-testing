@@ -37,3 +37,16 @@ jobs:
 
       - name: Compile and run concurrency proof suite
         run: mvn -B -DtrimStackTrace=false clean test
+
+      - name: Repeat continuation and contention proofs
+        run: |
+          for attempt in 1 2 3; do
+            mvn -B -Dtest=ConcurrencyCombinationProofTest,ConcurrencySourceExecutionTest test
+          done
+
+      - name: Preserve proof reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof-reports-${{ matrix.os }}-jdk${{ matrix.java }}
+          path: target/surefire-reports/

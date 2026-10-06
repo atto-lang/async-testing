@@ -29,7 +29,23 @@ closed-mailbox/subscription teardown, aggregation of void Future results, and
 the `Future<void>` channel-write type. The proof tests use bounded waits and
 explicitly arm the rendezvous read before starting its producer.
 
-The enabled suite contains 12 tests. One additional `nb cb writech` syntax
-contract remains deliberately disabled until parser/type/lowering support is
-implemented; passing the enabled tests does not close the other gaps in
-`PROOF_MATRIX.md`.
+The suite now contains 52 test invocations with no disabled tests, including five
+checks that unsupported operations fail closed. Coverage combines guest source
+execution with runtime proofs of dispatch ownership, bounded queues, exact
+channel/select delivery, actor-group fan-out and event-bus delivery policies.
+
+The callback write form is implemented for actor execution domains:
+
+```ores
+val Future<void> pending = nb writech output, value;
+nb cb writech output, value || -> { stdio.println("write completed"); };
+```
+
+Callback writes reuse static nb select lowering. Actor callables remain alive
+until their registered continuations drain, and deferred failures reach the
+caller. Shared Future registrations are counted separately to avoid dropping a
+second callback during teardown.
+
+Mailman, untrusted actors, pending blocking source actor waits, isolated event-bus
+subscriptions, full persistent actor-class/spawn syntax, and root callback-write
+lowering remain explicit gaps in `PROOF_MATRIX.md`.

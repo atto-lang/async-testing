@@ -1,10 +1,9 @@
 package dev.oreslang;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.*;
 
 import dev.oreslang.parser.Parser;
 import dev.oreslang.types.TypeChecker;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 final class ConcurrencySyntaxContractTest {
@@ -37,7 +36,6 @@ final class ConcurrencySyntaxContractTest {
                 """)));
     }
 
-    @Disabled("CONTRACT GAP: add 'cb' syntax/lowering; callback must re-enter the owning actor scheduler turn")
     @Test
     void nbCbWritechIsVoidCallbackSurfaceRatherThanFutureSurface() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
@@ -49,4 +47,37 @@ final class ConcurrencySyntaxContractTest {
                 }
                 """)));
     }
+    @Test
+    void callbackWriteIsStatementOnlyAndRequiresActorOwnership() {
+        assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
+                fnc main(Channel<int> output): void {
+                  nb cb writech output, 42 || -> { return; };
+                  return;
+                }
+                """)));
+        assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
+                actor fnc arm(Channel<int> output): void {
+                  val Future<void> wrong = nb cb writech output, 42 || -> { return; };
+                  return;
+                }
+                """)));
+        assertThrows(IllegalArgumentException.class, () -> TypeChecker.check(Parser.parse("""
+                actor fnc arm(Channel<int> output): void {
+                  nb cb writech output, 42 || -> { return 1; };
+                  return;
+                }
+                """)));
+    }
+
+    @Test
+    void callbackDelimiterPreservesLogicalOrPayloadsAndParenthesizedWrites() {
+        assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
+                actor fnc arm(Channel<bool> output): void {
+                  nb cb writech output, false || true || -> { return; };
+                  nb cb writech(output, true) || -> { return; };
+                  return;
+                }
+                """)));
+    }
+
 }

@@ -802,6 +802,10 @@ public final class Parser {
     }
 
     private Ast.Stmt parseStatement() {
+        if (check(NB) && checkNext(IDENT)
+                && tokens.get(current + 1).lexeme().equals("cb")) {
+            return parseCallbackWriteStatement();
+        }
         if (looksLikeStaticSelectStatement()) return parseStaticSelectStatement();
         if (looksLikeImmediateChannelExpression()) {
             Ast.Expr expression = parseExpression();
@@ -850,6 +854,32 @@ public final class Parser {
         Ast.Expr expression = parseExpression();
         consumeStatementTerminator("expression statement should end with ';'");
         return new Ast.ExprStmt(expression);
+    }
+
+    /** Callback writes share select registration, ownership checks and actor re-entry. */
+    private Ast.SelectStmt parseCallbackWriteStatement() {
+        consume(NB, "expected nb");
+        consume(IDENT, "expected cb");
+        consume(WRITECH, "'nb cb' must prefix writech");
+        Ast.ChannelOpExpr write = (Ast.ChannelOpExpr) parseChannelOperation(
+                Ast.ChannelOperation.WRITE, Ast.WaitMode.NONBLOCKING);
+        consume(PIPE, "callback write requires '|| -> { ... }'");
+        consume(PIPE, "callback write requires '|| -> { ... }'");
+        consume(ARROW, "callback write requires '|| -> { ... }'");
+        List<Ast.Stmt> body = parseBlock();
+        consumeStatementTerminator("callback write should end with ';'");
+        return new Ast.SelectStmt(
+                Ast.WaitMode.NONBLOCKING,
+                Ast.SelectPolicy.FAIR,
+                List.of(new Ast.SelectArm(Ast.ChannelOperation.WRITE,
+                        write.channel(), write.value(), null, null, body)));
+    }
+
+    private boolean atWriteCallbackBoundary() {
+        return current + 2 < tokens.size()
+                && tokens.get(current).type() == PIPE
+                && tokens.get(current + 1).type() == PIPE
+                && tokens.get(current + 2).type() == ARROW;
     }
 
     private boolean looksLikeImmediateChannelExpression() {
@@ -1488,7 +1518,7 @@ public final class Parser {
 
     private Ast.Expr parseLogicalOr() {
         Ast.Expr expr = parseLogicalXor();
-        while (matchAdjacentPair(PIPE)) expr = new Ast.BinaryExpr("||", expr, parseLogicalXor());
+        while (!atWriteCallbackBoundary() && matchAdjacentPair(PIPE)) expr = new Ast.BinaryExpr("||", expr, parseLogicalXor());
         return expr;
     }
 

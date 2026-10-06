@@ -1,85 +1,107 @@
 # Concurrency proof matrix
 
-Pinned source snapshot:
+Vendored baseline: `ores-truffle-oreslang/oreslang-source.java@e1e84d071beebb59671eeae28e2344f9a6bc3940`.
+The harness includes its earlier native/teardown fixes plus callback-write parsing
+and actor-callable continuation-lifetime fixes. It is not an unmodified upstream snapshot.
 
-`ores-truffle-oreslang/oreslang-source.java@e1e84d071beebb59671eeae28e2344f9a6bc3940`
+## Executable coverage
 
-This is the head of the ActorGroup event-bus stack and includes the channel/select/mailbox work from PR #252.
+Run `mvn clean test` with JDK 21 or 25 and a C compiler. The suite has 52 test
+invocations, zero disabled tests. Five invocations explicitly verify unsupported
+boundaries (four pending blocking actor operations and isolated event delivery).
+Those passing rejection checks do **not** prove the requested successful semantics.
 
-## Executable proofs
+| Combination / invariant | Executable evidence |
+|---|---|
+| Guest async/await + nested Futures | `ConcurrencySourceExecutionTest.asyncAwaitComposesNestedSourceFutures` |
+| Guest async + channel Futures + dynamic nb select | `asyncSourceCombinesChannelFuturesWithDynamicSelect` |
+| Guest nb writech returns Future<void>; nb readch returns Future<T> | `pendingNbWriteAndNbReadReturnAwaitableSourceFutures` and syntax contracts |
+| Guest actor / shared actor / isoactor + callback writes | Parameterized `callbackWriteRunsAfterActorBodyOnFreshTurn`: body continues before callback |
+| Guest static nb select + channel write + detached arm | `staticNbSelectArmRunsAfterBodyInsteadOfBeingDiscarded` |
+| Guest blocking select/read/write with ready operations | `sourceBlockingSelectCommitsReadyWriteAndRead` |
+| Shared / isoactor keywords execute guest bodies | `sharedAndIsoActorKeywordsExecuteGuestBodies` |
+| 100 select readers + 100 write Futures on the same bounded scheduler | `manyPendingSelectsAndWritesProgressOnBoundedScheduler`: capacities 0/1/8 × carriers 1/2; exact payload set, fresh dispatch IDs, owning scheduler |
+| Scheduler queue bound and overflow recovery | `boundedSchedulerQueueRejectsOverflowAndRecovers` |
+| Mailbox is Channel<Envelope>; actor carrier isolation | Existing `ConcurrencyIntegrationProofTest` |
+| 12 shared/private actors in one group, pending channel reads | `sharedAndPrivateGroupActorsResumeChannelWaitsWithoutRetainingCarriers`: one carrier per pool, all waits armed before writes, actor-ID affinity |
+| 12 shared subscribers, group fan-out | `multiSharedActorGroupFanoutUsesOneCarrierAndPreservesActorLease`: exactly one callback per actor, one physical carrier |
+| Actor mailbox bound, FIFO and private-pool progress during shared saturation | `boundedMailboxRejectsOverflowWhileOtherPoolProgresses` |
+| Pending callable continuation lifetime and shared-pool progress | `oneShotCallableKeepsPendingContinuationAliveAndAllowsPoolProgress` |
+| Multiple callbacks on the same Future | `multipleContinuationsOnSameFutureRemainOwnedUntilEveryCallbackDrains`: producer pauses between callback registrations; another actor progresses before second delivery |
+| Deferred callback failure is visible to caller | `oneShotContinuationFailureIsReportedToCaller` |
+| Competing selects: one commit, losing-arm detachment | `competingSelectsCommitExactlyOnceAndDetachLosingArms` |
+| FAIR / PRIORITY / default select policies | `fairPriorityAndDefaultSelectHaveObservablePolicies` |
+| Channel capacity/backpressure and closed reads/writes/selects | `boundedChannelBackpressureAndCloseSettleEveryWaiter` |
+| Canceled channel/select waits cannot steal subsequent traffic | `cancelledReadsWritesAndSelectsCannotStealLaterTraffic` |
+| Scheduler cancellation does not cancel a shared producer or revive task | `schedulerCloseCancelsTaskWithoutCancellingSharedProducer` |
+| Actor cancellation detaches owned channel waits | Existing `cancellingActorDetachesOutstandingChannelContinuation` |
+| Reliable, latest and lossy event policies | Parameterized `EventBusPolicyProofTest`: bounded capacity, reliable backpressure, latest coalescing, lossy drops |
+| Subscriber cancellation settles backpressured publication | `subscriberCancellationSettlesBackpressuredPublicationAndClosesSubscription` |
+| Event publisher cannot execute subscriber callback inline | Existing event-bus integration proof |
+| Hungry native carrier does not starve ordinary private actor dispatcher | Existing `hungryActorDedicatedCarrierDoesNotStarveOrdinaryActorPool` |
 
-| Area | Proof | Status |
-|---|---|---|
-| Future + scheduler | Awaiting a channel Future unwinds and resumes through a fresh owning-scheduler dispatch | executable |
-| Producer isolation | Channel/Future completion thread never executes guest continuation code | executable |
-| Mailbox/channel unification | ActorCell mailbox transport is `ChannelRuntime.Channel<MessageEnvelope>` | executable |
-| `nb readch` lowering substrate | Pending channel Future can re-enter the actor through a runtime continuation envelope | executable |
-| `nb writech` Future surface | `writeAsync` returns a pending `OresFuture<void>` until a reader commits | executable |
-| `nb writech` callback substrate | The same write registration can enqueue a callback back through the actor mailbox/scheduler lease | executable runtime substrate |
-| select / nb select | `ChannelRuntime.SelectSet.selectAsync` is the one registration substrate; source parser supports static/dynamic nb select | covered by pinned runtime + syntax proof |
-| ActorGroup event bus | Subscription is channel-backed; event Future completion re-enters subscriber actor through mailbox continuation | executable |
-| Shared actors | Shared actor progresses on SHARED dispatcher | executable |
-| Iso/private actors | Private actor progresses on separate PRIVATE dispatcher | executable |
-| Hungry actors | Dedicated native carrier does not consume/starve ordinary actor dispatcher | executable |
-| Cancellation | Actor cancellation detaches outstanding channel continuation and late completion cannot resurrect actor | executable |
-| Event publisher isolation | Event publisher never runs subscriber guest callback inline | executable |
-
-## Contract gaps this snapshot must not pretend are solved
-
-### 1. Pending blocking source waits inside actors
-
-PR #252 explicitly says arbitrary pending blocking actor `await`, `readch`, `writech`, and `select` still need source-frame lowering onto the resumable `OresScheduler.Task` ABI.
-
-Already-ready operations work. A genuinely pending blocking operation currently fails closed rather than parking an actor carrier. This is safe, but it is not the final semantics.
-
-**Required proof before merge:** a source-level actor suspends on each pending operation, another actor continues on the same bounded dispatcher, and the suspended actor later resumes on a fresh dispatch without retaining a Java interpreter stack.
-
-### 2. `nb cb writech` syntax
-
-Required distinction:
+## Callback and Future write contracts
 
 ```ores
-val Future<void> f = nb writech output, value;
+val Future<void> pending = nb writech output, value;
 
 nb cb writech output, value || -> {
-  // callback body
+  // Runs later in a serialized turn of the owning actor.
 };
 ```
 
-The first form returns a Future. The `cb` form is a void callback surface. Its completion callback must be enqueued back to the owning actor/root scheduler domain; it may never run inline on the producer/channel-completion thread.
+The `cb` form is a statement, not a Future expression. It lowers to one write arm
+of static `nb select`, so type checking, ownership/capability traversal, transport
+registration and continuation routing share the existing select machinery.
+Logical-or write payloads and parenthesized channel operands are covered.
+Callbacks cannot return a value or escape an enclosing loop. This snapshot
+requires an actor domain for this callback form; root-scheduler callback syntax
+is not supported. Plain `nb writech` retains its Future-returning behavior.
 
-The runtime substrate is proven by `ConcurrencyIntegrationProofTest`. Parser/type/lowering support is not yet present; the contract test is deliberately disabled until implemented.
+Actor-callable invocation now waits for its registered detached continuations to
+drain before reporting termination. Pending-to-mailbox transfer is atomic with
+idle termination, and registrations on the same Future are counted separately.
+Failed callbacks propagate to the caller. Pending callbacks remain subject to the
+existing wall-time deadline and structural cancellation.
 
-### 3. Untrusted actors
+## Remaining contract gaps
 
-The pinned #255/#252 runtime has only `PRIVATE` and `SHARED` `ActorKind` values. The separate actor-class hardening stack discusses `UNTRUSTED`, but it is not converged into this source snapshot.
+1. **Pending blocking guest actor waits.** `await`, `readch`, `writech`, and
+   blocking `select` fail closed when genuinely pending. The parameterized source
+   boundary tests execute all four failures. Ready operations and runtime
+   `OresScheduler.Task` resumption pass; source-frame continuation lowering is
+   still required. Ordinary guest async callables use `AsyncRuntime` virtual
+   threads, whereas the bounded scheduler tests explicitly exercise the
+   resumable `OresScheduler.Task` ABI. Do not infer compiler state-machine
+   lowering from ordinary source async tests.
+2. **ActorMailman / CONTROL event loop / group outbox.** No implementation exists
+   in this baseline. Group membership and the bus do not establish Mailman
+   correctness. Required next proofs: one serialized mailman per group, bounded
+   MPSC outbox, CONTROL-pool ownership, mailbox writes making actors runnable,
+   no per-actor scheduler or mailbox scanning, and teardown settling all outbox
+   entries.
+3. **Untrusted actors.** Only PRIVATE and SHARED runtime kinds exist here.
+   Independent untrusted bulkheading and host isolation revocation before
+   force-cancel still require the relevant upstream implementation.
+4. **Private/iso actor event-bus subscriptions.** Group membership and channel
+   continuations pass, but zero-copy event subscriptions are explicitly rejected.
+   `privateActorsCanJoinGroupsButIsolatedEventDeliveryRemainsUnsupported` verifies
+   this boundary. Isolated/copying event transport is still required.
+5. **Persistent actor classes and complete source spawn syntax.** Runtime
+   `spawnShared` / `spawnPrivate` and source actor callables are exercised. Final
+   persistent actor-class/spawn object-model integration lives on another stack.
+   Hungry actors are tested through the real native runtime API, not source syntax.
+6. **Root-domain callback writes.** The new `nb cb writech` surface currently
+   inherits static nb select's actor-only ownership rule. Root-scheduler callback
+   lowering needs its own implementation and executable proof.
 
-**Required proof:** untrusted actors execute on an independently bulkheaded pool/isolation domain and host force-cancel revokes that isolation boundary before logical teardown.
+## Acceptance and CI
 
-### 4. ActorMailman
+A feature moves from gap to proven only with real compiler/runtime execution,
+ownership checks, cancellation/late-completion checks where relevant, bounded
+resource coverage, and a passing clean-checkout CI run. Tests are finite evidence
+of these invariants, not a formal proof of every possible interleaving.
 
-The pinned runtime has ActorGroups and the event bus, but no `ActorMailman` implementation/class or group outbox/mailman event loop in this stack.
-
-Do not claim Mailman correctness from ActorGroup/event-bus tests. Converge the Mailman branch first, then prove:
-
-- one logical serialized mailman per group;
-- bounded MPSC group outbox;
-- mailman runs on CONTROL pool, not one scheduler per actor;
-- mailman never scans/selects every actor mailbox;
-- mailbox writes enqueue runnable actors;
-- cancellation/teardown cannot strand outbox entries.
-
-### 5. Persistent `actor` classes / full spawn syntax convergence
-
-The active actor-class hardening work is on a separate stack. This harness currently proves the runtime actor substrate (`spawnShared`, `spawnPrivate`) and source actor-callable/channel syntax, not the final persistent `define actor Worker as ... end` object-model integration.
-
-## Acceptance rule
-
-A feature moves from **contract gap** to **proven** only when:
-
-1. there is an executable test here;
-2. it uses the real pinned runtime/compiler implementation, not a mock;
-3. it proves scheduler/carrier ownership, not only output values;
-4. cancellation and late-completion behavior are covered where applicable;
-5. bounded-resource behavior is covered (mailbox/channel/outbox/backpressure);
-6. the proof runs in CI on a clean checkout.
+CI runs Linux/macOS × JDK 21/25, repeats source/continuation/contention tests three
+additional times, and retains JUnit reports. Local execution alone does not
+establish the other platform/JDK matrix results.

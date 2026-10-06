@@ -837,16 +837,19 @@ public final class ActorRuntime implements AutoCloseable {
             return;
         }
 
-        cell.pendingContinuations.add(future);
+        cell.pendingContinuations.merge(future, 1, Integer::sum);
         if (cell.stopped.get()) {
-            cell.pendingContinuations.remove(future);
+            cell.removePendingContinuation(future);
             future.cancel(false);
             return;
         }
 
         future.whenCompleteRuntime((value, failure) -> {
-            cell.pendingContinuations.remove(future);
-            target.enqueue(() -> continuation.accept(value, failure));
+            // Transfer pending ownership to the mailbox atomically with idle-stop.
+            synchronized (cell.lifecycleLock) {
+                cell.removePendingContinuation(future);
+                target.enqueue(() -> continuation.accept(value, failure));
+            }
         });
     }
 
@@ -1696,7 +1699,8 @@ public final class ActorRuntime implements AutoCloseable {
      * Compiler-only lowering target for source-level actor/isoactor callables.
      *
      * A fresh actor receives exactly one transported message, computes one
-     * data-only result, then terminates. Synchronous nesting from an actor turn
+     * data-only result, drains its registered continuations, then terminates.
+     * Synchronous nesting from an actor turn
      * is rejected so a bounded dispatcher cannot be starved by callers waiting
      * on actors scheduled onto the same runtime.
      */
@@ -1735,7 +1739,11 @@ public final class ActorRuntime implements AutoCloseable {
                     } catch (Throwable failure) {
                         completion.completeExceptionally(failure);
                     } finally {
-                        turnContext.self().stop();
+                        if (completion.isCompletedExceptionally()) {
+                            turnContext.self().stop();
+                        } else {
+                            currentActor.get().stopAfterContinuations();
+                        }
                     }
                 },
                 true);
@@ -1780,6 +1788,7 @@ public final class ActorRuntime implements AutoCloseable {
             }
 
             if (executionFailure != null) throw executionFailure;
+            if (ref.failure().isPresent()) throw new ExecutionException(ref.failure().orElseThrow());
             return result;
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
@@ -3354,7 +3363,9 @@ public final class ActorRuntime implements AutoCloseable {
         private final boolean trustedFactory;
         private final ActorCell<?> parent;
         private final Set<ActorCell<?>> children = ConcurrentHashMap.newKeySet();
-        private final Set<OresFuture<?>> pendingContinuations = ConcurrentHashMap.newKeySet();
+        private final Map<OresFuture<?>, Integer> pendingContinuations = new ConcurrentHashMap<>();
+        /** One-shot callables remain alive until their detached arms have drained. */
+        private boolean stopWhenIdle;
         /** Mailbox transport is a bounded Oreslang channel of runtime envelopes. */
         private final ChannelRuntime.Channel<MessageEnvelope> mailbox;
         private final ActorMemorySlice memorySlice;
@@ -3429,15 +3440,30 @@ public final class ActorRuntime implements AutoCloseable {
             }
         }
 
+        private void removePendingContinuation(OresFuture<?> future) {
+            pendingContinuations.computeIfPresent(future,
+                    (ignored, count) -> count == 1 ? null : count - 1);
+        }
+
+        private void stopAfterContinuations() {
+            synchronized (lifecycleLock) {
+                stopWhenIdle = true;
+            }
+        }
+
         private void endTurn() {
+            boolean finishInvocation;
             synchronized (lifecycleLock) {
                 if (activeTurns <= 0) {
                     throw new IllegalStateException("actor active-turn accounting underflow for " + ref.id());
                 }
                 activeTurns--;
                 if (stopped.get() && activeTurns == 0) finalizeStopLocked();
+                finishInvocation = stopWhenIdle && activeTurns == 0
+                        && pendingContinuations.isEmpty() && mailbox.isEmpty();
                 lifecycleLock.notifyAll();
             }
+            if (finishInvocation) stop();
         }
 
         private void finalizeStopLocked() {
@@ -3707,7 +3733,7 @@ public final class ActorRuntime implements AutoCloseable {
                 else mailbox.close(cause);
                 drainMailboxReservations();
                 descendants = List.copyOf(children);
-                pending = List.copyOf(pendingContinuations);
+                pending = List.copyOf(pendingContinuations.keySet());
                 pendingContinuations.clear();
                 finalizeStopLocked();
                 lifecycleLock.notifyAll();
