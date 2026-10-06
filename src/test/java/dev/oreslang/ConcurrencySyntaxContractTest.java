@@ -11,10 +11,9 @@ final class ConcurrencySyntaxContractTest {
     @Test
     void nbReadchAndNbWritechAreFutureReturningExpressions() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
-                actor fnc arm(
-                    Channel<int> input,
-                    Channel<int> output
-                ): void {
+                actor fnc arm(): void {
+                  val Channel<int> input = Channel.new<int>(1);
+                  val Channel<int> output = Channel.new<int>(1);
                   val Future<int> pending_read = nb readch input;
                   val Future<void> pending_write = nb writech output, 42;
                   return;
@@ -25,7 +24,8 @@ final class ConcurrencySyntaxContractTest {
     @Test
     void nbSelectIsActorOwnedAndReturnsImmediately() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
-                actor fnc arm(Channel<int> input): void {
+                actor fnc arm(): void {
+                  val Channel<int> input = Channel.new<int>(1);
                   nb select {
                   case readch input: const value
                     stdio.println(value);
@@ -39,7 +39,8 @@ final class ConcurrencySyntaxContractTest {
     @Test
     void nbCbWritechIsVoidCallbackSurfaceRatherThanFutureSurface() {
         assertDoesNotThrow(() -> TypeChecker.check(Parser.parse("""
-                actor fnc arm(Channel<int> output): void {
+                actor fnc arm(): void {
+                  val Channel<int> output = Channel.new<int>(1);
                   nb cb writech output, 42 || -> {
                     stdio.println("write completed");
                   };
