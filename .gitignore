@@ -1,2 +1,6 @@
-/target/
-/.compiler/
+target/
+.idea/
+.vscode/
+*.iml
+.DS_Store
+*.log
