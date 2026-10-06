@@ -629,6 +629,26 @@ public final class TypeChecker {
             return;
         }
         if (stmt instanceof Ast.ExprStmt expression) { typeOf(expression.expression(), env, generics, self); return; }
+        if (stmt instanceof Ast.NbWriteCallbackStmt callbackWrite) {
+            if (currentActorKind == Ast.ActorKind.NONE) {
+                throw new IllegalArgumentException(
+                        "'nb cb writech' requires an actor execution domain because its callback executes later");
+            }
+            Type element = channelElementType(
+                    typeOf(callbackWrite.channel(), env, generics, self),
+                    "nb cb writech");
+            requireAssignable(
+                    typeOf(callbackWrite.value(), env, generics, self),
+                    element,
+                    "nb cb writech value");
+            validateLambdaAgainstExpected(
+                    callbackWrite.callback(),
+                    new Function(List.of(), Primitive.VOID),
+                    env,
+                    generics,
+                    self);
+            return;
+        }
         if (stmt instanceof Ast.DeferStmt defer) { typeOf(defer.expression(), env, generics, self); return; }
         if (stmt instanceof Ast.IfStmt conditional) {
             for (Ast.IfBranch branch : conditional.branches()) {
