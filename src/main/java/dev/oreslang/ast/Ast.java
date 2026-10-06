@@ -396,7 +396,7 @@ public final class Ast {
                 throw new IllegalArgumentException(
                         "nb cb writech requires channel, value, and callback");
             }
-            if (!callback.params().isEmpty()) {
+            if (!callback.parameters().isEmpty()) {
                 throw new IllegalArgumentException(
                         "nb cb writech callback must take zero parameters");
             }
