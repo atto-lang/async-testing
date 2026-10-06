@@ -16,6 +16,7 @@ import dev.oreslang.runtime.ActorRuntime;
 import dev.oreslang.runtime.AsyncRuntime;
 import dev.oreslang.runtime.ChannelRuntime;
 import dev.oreslang.runtime.OresFuture;
+import dev.oreslang.runtime.Awaitable;
 import dev.oreslang.runtime.OresScheduler;
 
 import java.nio.file.Path;
@@ -440,7 +441,6 @@ public final class OresEvalRootNode extends RootNode {
         }
 
 
-        @FunctionalInterface
         @FunctionalInterface
         private interface SourceValueCont {
             void accept(SourceTask task, Object value, Throwable failure);
@@ -1007,7 +1007,8 @@ public final class OresEvalRootNode extends RootNode {
                     env,
                     defers,
                     0,
-                    flow -> finishBlock(task, env, defers, flow, continuation));
+                    (ignored, flow) ->
+                            finishBlock(task, env, defers, flow, continuation));
         }
 
         private void runStatements(
@@ -1082,7 +1083,7 @@ public final class OresEvalRootNode extends RootNode {
                     stmt,
                     env,
                     defers,
-                    flow -> {
+                    (ignored, flow) -> {
                         if (flow.kind() == SourceFlowKind.NORMAL) {
                             runStatements(
                                     task,
@@ -2667,10 +2668,7 @@ public final class OresEvalRootNode extends RootNode {
                 Env env,
                 ArrayList<Object> values,
                 int index,
-                java.util.function.BiConsumer<
-                        SourceTask,
-                        List<Object>,
-                        Throwable> continuation) {
+                SourceArgsCont continuation) {
             if (index >= expressions.size()) {
                 continuation.accept(task, List.copyOf(values), null);
                 return;
@@ -2732,7 +2730,7 @@ public final class OresEvalRootNode extends RootNode {
                                 "duplicate obj field " + entry.getKey());
                     }
                 }
-                continuation.accept(task, result);
+                continuation.accept(task, result, null);
                 return;
             }
 
@@ -2743,7 +2741,7 @@ public final class OresEvalRootNode extends RootNode {
                             continuation.accept(t, null, failure);
                             return;
                         }
-                        String actualKey = field.name();
+                        final String actualKey;
                         if (field.isDynamic()) {
                             if (!(key instanceof String stringKey)) {
                                 continuation.accept(
@@ -2754,6 +2752,8 @@ public final class OresEvalRootNode extends RootNode {
                                 return;
                             }
                             actualKey = stringKey;
+                        } else {
+                            actualKey = field.name();
                         }
                         evalSuspendableExpr(
                                 t,
