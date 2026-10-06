@@ -42,8 +42,8 @@ the pinned real runtime:
 
 - actor-domain retirement cleans an actor-owned host resource even when a stale
   host reference keeps its owner reachable, and later sweeps cannot double-clean;
-- a failed explicit cleanup remains retryable and becomes idempotent after its
-  successful retry;
+- a failed actor-domain retirement cleanup remains registered and is retried by
+  the next process/periodic sweep;
 - graceful root stop cancels a structured child/grandchild tree without orphans;
 - child lifecycle authority cannot flow upward to cancel its parent;
 - force kill presents the revoker with the complete three-node subtree and all
