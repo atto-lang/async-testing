@@ -1,35 +1,30 @@
-# Oreslang Async / Actor / Channel Proof Harness
+# Oreslang
 
-This repository is an executable integration harness for the Oreslang concurrency stack.
+Oreslang is a statically typed GraalVM/Truffle language with nominal typing by default, explicit structural-call opt-ins, actor-oriented concurrency, hot-loadable code generations, and deny-by-default isolate capabilities.
 
-It is intentionally designed to prove cross-layer invariants involving:
+This repository contains the Java/Truffle reference implementation.
 
-- OresFuture / Awaitable / async-await scheduler resumption
-- actor spawn and actor execution domains
-- shared, private/iso, untrusted, and hungry actors
-- ActorGroup / ActorMailman routing
-- mailbox = policy around Channel<Envelope>
-- readch / writech / nb readch / nb writech
-- static and dynamic select / nb select
-- ActorGroup event bus delivery and backpressure
-- cancellation, fairness, progress, and carrier starvation safety
+The language is intentionally opinionated:
 
-The first proof branch is pinned to the active Oreslang source stack that includes
-PR #252 (channels/select/mailbox/cancellation) and PR #255 (ActorGroup event bus).
+- static nominal typing by default, with explicit structural compatibility at selected call boundaries;
+- private functions by default (`fnc`), with `pub` for exported functions;
+- class methods omit `fnc` and have an implicit `self` receiver;
+- one return value only (tuples/arrays/records are ordinary single values);
+- `val`, `const`, and `let` are the only variable declarations;
+- actor heaps are isolated: mutable values are never shared between actors;
+- immutable/sendable values may be message-passed, and explicitly frozen regions may be shared read-only;
+- isolates are stricter security boundaries for FaaS/mobile workloads, with host access denied and Oreslang APIs capability-gated by default;
+- JIT, AOT/interpreter, and AOT-host + guest-JIT hybrid execution profiles;
+- file-granular incremental compilation with stable code-unit/package identities and reverse-dependency invalidation;
+- flat optional file namespaces and flat modules (neither may nest);
+- class-level `static fnc` functions separated from receiver methods;
+- first-class function aliases/types and block-only `|args| -> { ... }` lambdas;
+- lexical closures with persistent captured environments;
+- affine ownership, move checking, borrows, immutable-by-default parameters, and `Type mut name` owned-mutation syntax - see [ft borrow, ft copy, ft take, ft share]
+- hot reload creates a fresh versioned guest context/generation without requiring FFI or dynamic native libraries;
+- direct method calls reuse shared class method definitions; instance/actor methods are direct-call-only, and callbacks use explicit lambdas instead of implicit bound-method values;
+- multiple named modules may appear in one source file;
+- explicit `return` statements;
+- generics, tuples, arrays, complex numbers, futures/`await`, lambdas, `defer`, and `try/catch/finally` are language-level features.
 
-Source snapshot: `ores-truffle-oreslang/oreslang-source.java@e1e84d071beebb59671eeae28e2344f9a6bc3940`.
-
-See `PROOF_MATRIX.md` on the proof branch for the required invariants and known gaps.
-
-Run the native carrier build and proof suite with `mvn clean test` (JDK 21 or 25,
-plus a C compiler on Linux/macOS). CI covers both platforms and JDK versions.
-
-The pinned snapshot includes local fixes for Darwin pthread declarations,
-closed-mailbox/subscription teardown, aggregation of void Future results, and
-the `Future<void>` channel-write type. The proof tests use bounded waits and
-explicitly arm the rendezvous read before starting its producer.
-
-The enabled suite contains 12 tests. One additional `nb cb writech` syntax
-contract remains deliberately disabled until parser/type/lowering support is
-implemented; passing the enabled tests does not close the other gaps in
-`PROOF_MATRIX.md`.
+The first implementation is developed on a feature branch and will land with an executable Truffle skeleton, grammar/specification, examples, tests, and CI.
