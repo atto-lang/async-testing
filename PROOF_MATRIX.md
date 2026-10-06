@@ -2,7 +2,7 @@
 
 Pinned source snapshot:
 
-`ores-truffle-oreslang/oreslang-source.java@e8f874d02fd09b2fd0092691be14f23ab5be9aef`
+`ores-truffle-oreslang/oreslang-source.java@9bcbf593b1312b9cb92c01d481618760a37731d9`
 
 This is the PR #269 concurrency-contract head, stacked directly on the ActorGroup event-bus head and including the channel/select/mailbox work from PR #252.
 
@@ -21,7 +21,7 @@ This is the PR #269 concurrency-contract head, stacked directly on the ActorGrou
 | Shared actors | Shared actor progresses on SHARED dispatcher | executable |
 | Iso/private actors | Private actor progresses on separate PRIVATE dispatcher | executable |
 | Hungry actors | Dedicated native carrier does not consume/starve ordinary actor dispatcher | executable |
-| Cancellation | Actor cancellation detaches outstanding channel continuation and late completion cannot resurrect actor | executable |
+| Cancellation | Actor cancellation detaches callback continuations and bare actor-owned nonblocking Futures; late completion cannot resurrect actor | executable |
 | Event publisher isolation | Event publisher never runs subscriber guest callback inline | executable |
 
 ## Contract gaps this snapshot must not pretend are solved

@@ -256,6 +256,37 @@ final class ConcurrencyIntegrationProofTest {
     }
 
     @Test
+    void cancellingActorCancelsBareOwnedNonblockingFutureWithoutCallback() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime(
+                IsolatePolicy.developer(),
+                new ActorRuntime.DispatcherConfig(1, 1, 8))) {
+            ChannelRuntime.Channel<String> channel = new ChannelRuntime.Channel<>(1);
+            CountDownLatch armed = new CountDownLatch(1);
+            AtomicReference<OresFuture<String>> pending = new AtomicReference<>();
+
+            ActorRuntime.ActorRef<String> actor = runtime.spawnShared(() -> (message, context) -> {
+                OresFuture<String> read =
+                        context.runtime().ownCurrentActorFuture(channel.readAsync());
+                pending.set(read);
+                armed.countDown();
+            });
+
+            actor.send("arm");
+            assertTrue(armed.await(2, TimeUnit.SECONDS));
+            assertFalse(pending.get().isDone());
+
+            assertTrue(actor.cancel());
+            assertTrue(actor.awaitTermination(2, TimeUnit.SECONDS));
+            assertTrue(pending.get().isCancelled(),
+                    "actor teardown must cancel bare owned nonblocking Futures");
+
+            assertTrue(channel.tryWrite("late"),
+                    "cancelled read waiter must be removed rather than consuming late data");
+            assertEquals("late", channel.tryRead().orElseThrow());
+        }
+    }
+
+    @Test
     void cancellingActorDetachesOutstandingChannelContinuation() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime(
                 IsolatePolicy.developer(),
