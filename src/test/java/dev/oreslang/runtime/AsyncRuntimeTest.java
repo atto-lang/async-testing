@@ -16,7 +16,7 @@ final class AsyncRuntimeTest {
             CountDownLatch started = new CountDownLatch(1);
             CountDownLatch release = new CountDownLatch(1);
 
-            CompletableFuture<Integer> future = runtime.submit(() -> {
+            OresFuture<Integer> future = runtime.submit(() -> {
                 assertTrue(AsyncRuntime.isAsyncCarrierThread());
                 assertFalse(ActorRuntime.isActorCarrierThread());
                 started.countDown();
@@ -37,7 +37,7 @@ final class AsyncRuntimeTest {
             CountDownLatch started = new CountDownLatch(1);
             CountDownLatch interrupted = new CountDownLatch(1);
 
-            CompletableFuture<Integer> future = runtime.submit(() -> {
+            OresFuture<Integer> future = runtime.submit(() -> {
                 started.countDown();
                 try {
                     Thread.sleep(TimeUnit.SECONDS.toMillis(30));
