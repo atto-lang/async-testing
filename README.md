@@ -1,35 +1,55 @@
 # Oreslang Async / Actor / Channel Proof Harness
 
-This repository is an executable integration harness for the Oreslang concurrency stack.
+This repository tests the real Oreslang compiler/runtime as a Maven dependency.
+It contains concurrency proofs only; compiler, runtime, and native carrier sources
+live in [oreslang-source.java](https://github.com/ores-truffle-oreslang/oreslang-source.java).
 
-It is intentionally designed to prove cross-layer invariants involving:
+## Run
 
-- OresFuture / Awaitable / async-await scheduler resumption
-- actor spawn and actor execution domains
-- shared, private/iso, untrusted, and hungry actors
-- ActorGroup / ActorMailman routing
-- mailbox = policy around Channel<Envelope>
-- readch / writech / nb readch / nb writech
-- static and dynamic select / nb select
-- ActorGroup event bus delivery and backpressure
-- cancellation, fairness, progress, and carrier starvation safety
+Install JDK 21 or 25, Maven, Git, and a C compiler on Linux or macOS, then run:
 
-The first proof branch is pinned to the active Oreslang source stack that includes
-PR #252 (channels/select/mailbox/cancellation) and PR #255 (ActorGroup event bus).
+```sh
+./scripts/test.sh
+```
 
-Source snapshot: `ores-truffle-oreslang/oreslang-source.java@e1e84d071beebb59671eeae28e2344f9a6bc3940`.
+The script fetches the exact upstream commit in `compiler-revision.txt` into the
+ignored `.compiler/` build cache. It builds the upstream JNI carrier library and
+installs the compiler JAR under a commit-specific Maven version, then runs all
+harness tests with that JAR and native library. CI uses the same command on Linux
+and macOS with JDK 21 and 25. No compiler source is copied into this repository.
 
-See `PROOF_MATRIX.md` on the proof branch for the required invariants and known gaps.
+After bootstrapping, individual tests can be run with:
 
-Run the native carrier build and proof suite with `mvn clean test` (JDK 21 or 25,
-plus a C compiler on Linux/macOS). CI covers both platforms and JDK versions.
+```sh
+mvn -Dores.thread.native.path="$PWD/.compiler/target/native/liboresthread.dylib" -Dtest=SelectSchedulerProofTest test
+```
 
-The pinned snapshot includes local fixes for Darwin pthread declarations,
-closed-mailbox/subscription teardown, aggregation of void Future results, and
-the `Future<void>` channel-write type. The proof tests use bounded waits and
-explicitly arm the rendezvous read before starting its producer.
+Use `liboresthread.so` on Linux. The native library must come from the same
+upstream checkout as the JAR.
 
-The enabled suite contains 12 tests. One additional `nb cb writech` syntax
-contract remains deliberately disabled until parser/type/lowering support is
-implemented; passing the enabled tests does not close the other gaps in
-`PROOF_MATRIX.md`.
+## CI access
+
+Both repositories are private. Configure an Actions secret named
+`ORESLANG_SOURCE_TOKEN` with read-only Contents access to `oreslang-source.java`
+(a fine-grained token or GitHub App installation token). The harness repository's
+built-in `GITHUB_TOKEN` cannot check out another private repository. CI checks out
+the pinned compiler with that token and does not persist its credentials.
+Local runs use your existing Git authentication.
+
+## Updating the compiler
+
+Commit implementation fixes to `oreslang-source.java`, then update both
+`compiler-revision.txt` and `oreslang.version` in `pom.xml` to the full upstream
+commit SHA (`0.1.0-<SHA>` for the Maven version). The script checks that these pins
+agree. Run `./scripts/test.sh` before submitting the update.
+
+The current pin follows the concurrency integration stack associated with
+upstream PR #269, including the fixes previously carried locally by this harness.
+It also retains newer upstream isolation checks. It does not imply that this
+concurrency stack has merged into upstream `main`.
+
+For local validation of an unpushed upstream commit, set `ORESLANG_SOURCE_URL` to
+an absolute path to its Git checkout. The full commit pin still applies.
+
+See `PROOF_MATRIX.md` for the invariants covered and outstanding contract gaps.
+Passing this suite does not close those gaps.

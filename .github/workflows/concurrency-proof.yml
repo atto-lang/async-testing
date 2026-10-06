@@ -23,6 +23,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read upstream compiler pin
+        id: compiler
+        run: echo "revision=$(cat compiler-revision.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Check private compiler access
+        env:
+          SOURCE_TOKEN: ${{ secrets.ORESLANG_SOURCE_TOKEN }}
+        run: |
+          if [ -z "$SOURCE_TOKEN" ]; then
+            echo "Configure ORESLANG_SOURCE_TOKEN with contents:read access to oreslang-source.java."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ores-truffle-oreslang/oreslang-source.java
+          ref: ${{ steps.compiler.outputs.revision }}
+          token: ${{ secrets.ORESLANG_SOURCE_TOKEN }}
+          path: .compiler
+          persist-credentials: false
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -36,4 +57,4 @@ jobs:
           mvn -version
 
       - name: Compile and run concurrency proof suite
-        run: mvn -B -DtrimStackTrace=false clean test
+        run: ./scripts/test.sh
