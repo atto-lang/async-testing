@@ -2,7 +2,6 @@ package dev.oreslang.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -54,103 +53,89 @@ final class FormalLifecycleTraceRefinementTest {
     }
 
     @Test
-    void failedExplicitCleanupRefinesRetryableOpenRegistryState() {
+    void failedActorRetirementCleanupRetainsAProcessSweepRetryPath()
+            throws Exception {
         AtomicInteger attempts = new AtomicInteger();
+        AtomicReference<Object> staleHostOwner = new AtomicReference<>();
+        CountDownLatch registered = new CountDownLatch(1);
 
         try (RuntimeGarbageCollector gc =
-                new RuntimeGarbageCollector(() -> {}, Duration.ofHours(1))) {
-            RuntimeGarbageCollector.CleanupHandle handle =
-                    gc.track(new Object(), () -> {
-                        if (attempts.incrementAndGet() == 1) {
-                            throw new IllegalStateException("transient");
-                        }
+                        new RuntimeGarbageCollector(() -> {}, Duration.ofHours(1));
+             ActorRuntime runtime = new ActorRuntime()) {
+            runtime.setActorExitHook(gc::retireActorDomain);
+
+            ActorRuntime.ActorRef<String> actor =
+                    runtime.spawnShared(() -> (message, context) -> {
+                        Object owner = new Object();
+                        staleHostOwner.set(owner);
+                        gc.track(owner, () -> {
+                            if (attempts.incrementAndGet() == 1) {
+                                throw new IllegalStateException("transient");
+                            }
+                        });
+                        registered.countDown();
+                        context.self().stop();
                     });
 
-            assertThrows(IllegalStateException.class, handle::close);
-            RuntimeGarbageCollector.CollectionReport retry = gc.collectPeriodic();
+            actor.send("register-and-stop");
+            assertTrue(registered.await(2, TimeUnit.SECONDS));
+            assertTrue(actor.awaitTermination(2, TimeUnit.SECONDS));
+            assertEquals(1, attempts.get(),
+                    "actor retirement must have attempted cleanup once");
 
+            RuntimeGarbageCollector.CollectionReport retry = gc.collectPeriodic();
             assertEquals(1, retry.cleaned());
             assertEquals(0, retry.trackedAfter());
             assertEquals(2, attempts.get());
-            handle.close();
-            assertEquals(2, attempts.get(),
-                    "successful retry makes later explicit release idempotent");
+            assertTrue(staleHostOwner.get() != null,
+                    "retry is driven by retired-domain/retry state, not owner reachability");
         }
     }
 
     @Test
-    void gracefulRootStopTerminatesStructuredTreeBottomUpWithoutOrphans()
+    void gracefulRootStopTerminatesStructuredTreeWithoutOrphans()
             throws Exception {
-        AtomicReference<ActorRuntime.ActorHandle<String>> childRef =
-                new AtomicReference<>();
-        AtomicReference<ActorRuntime.ActorHandle<String>> grandchildRef =
-                new AtomicReference<>();
-        CountDownLatch grandchildCreated = new CountDownLatch(1);
-
         try (ActorRuntime runtime = new ActorRuntime()) {
-            ActorRuntime.ActorRef<String> root =
-                    runtime.spawnShared(() -> (message, context) -> {
-                        if ("spawn".equals(message)) {
-                            ActorRuntime.ActorHandle<String> child =
-                                    context.runtime().spawnChildShared(
-                                            factoryContext ->
-                                                    (childMessage, childContext) -> {
-                                                        if ("spawn-grandchild".equals(childMessage)) {
-                                                            grandchildRef.set(
-                                                                    childContext.runtime()
-                                                                            .spawnChildShared(
-                                                                                    grandFactory ->
-                                                                                            (grandMessage, grandContext) -> { }));
-                                                            grandchildCreated.countDown();
-                                                        }
-                                                    });
-                            childRef.set(child);
-                            child.send("spawn-grandchild");
-                            return;
-                        }
+            Tree tree = createThreeNodeTree(runtime);
 
-                        if ("stop".equals(message)) {
-                            context.self().stop();
-                        }
-                    });
+            tree.root().stop();
 
-            root.send("spawn");
-            assertTrue(grandchildCreated.await(2, TimeUnit.SECONDS));
+            assertTrue(tree.root().awaitTermination(3, TimeUnit.SECONDS));
+            assertTrue(tree.child().awaitTermination(2, TimeUnit.SECONDS));
+            assertTrue(tree.grandchild().awaitTermination(2, TimeUnit.SECONDS));
 
-            root.send("stop");
-            assertTrue(root.awaitTermination(3, TimeUnit.SECONDS));
-            assertTrue(childRef.get().awaitTermination(1, TimeUnit.SECONDS));
-            assertTrue(grandchildRef.get().awaitTermination(1, TimeUnit.SECONDS));
-
-            assertTrue(root.failure().isEmpty(),
+            assertTrue(tree.root().failure().isEmpty(),
                     "graceful root stop remains a normal root termination");
             assertInstanceOf(
                     ActorRuntime.ActorCancelledException.class,
-                    childRef.get().failure().orElseThrow());
+                    tree.child().failure().orElseThrow());
             assertInstanceOf(
                     ActorRuntime.ActorCancelledException.class,
-                    grandchildRef.get().failure().orElseThrow());
+                    tree.grandchild().failure().orElseThrow());
         }
     }
 
     @Test
-    void childLifecycleAuthorityCannotCancelItsParent() throws Exception {
+    void childActorRefAuthorityCannotCancelItsParent() throws Exception {
         CountDownLatch denied = new CountDownLatch(1);
 
         try (ActorRuntime runtime = new ActorRuntime()) {
-            ActorRuntime.ActorRef<Object> root =
+            ActorRuntime.ActorRef<Object> parent =
                     runtime.spawnShared(() -> (message, context) -> {
-                        if ("spawn".equals(message)) {
-                            ActorRuntime.ActorHandle<Object> child =
-                                    context.runtime().spawnChildShared(
+                        if ("spawn-child".equals(message)) {
+                            ActorRuntime.ActorRef<Object> child =
+                                    context.runtime().spawnShared(
                                             factoryContext ->
                                                     (childMessage, childContext) -> {
                                                         if (childMessage
-                                                                instanceof ActorRuntime.ActorRef<?> parent) {
+                                                                instanceof ActorRuntime.ActorRef<?> parentRef) {
                                                             try {
-                                                                parent.cancel();
+                                                                parentRef.cancel();
                                                             } catch (SecurityException expected) {
-                                                                denied.countDown();
+                                                                @SuppressWarnings("unchecked")
+                                                                ActorRuntime.ActorRef<Object> reply =
+                                                                        (ActorRuntime.ActorRef<Object>) parentRef;
+                                                                reply.send("denied");
                                                                 childContext.self().stop();
                                                             }
                                                         }
@@ -159,74 +144,102 @@ final class FormalLifecycleTraceRefinementTest {
                             return;
                         }
 
-                        if ("stop".equals(message)) context.self().stop();
+                        if ("denied".equals(message)) {
+                            denied.countDown();
+                            context.self().stop();
+                        }
                     });
 
-            root.send("spawn");
+            parent.send("spawn-child");
+
             assertTrue(denied.await(2, TimeUnit.SECONDS));
-            assertTrue(root.isAlive(),
-                    "denied upward lifecycle authority must leave the parent alive");
-            root.send("stop");
-            assertTrue(root.awaitTermination(2, TimeUnit.SECONDS));
-            assertTrue(root.failure().isEmpty());
+            assertTrue(parent.awaitTermination(2, TimeUnit.SECONDS));
+            assertTrue(parent.failure().isEmpty(),
+                    "denied upward lifecycle authority must not fail/cancel the parent");
         }
     }
 
     @Test
-    void forceKillRevokesTheCompleteThreeNodeSubtreeAtomically() throws Exception {
-        AtomicReference<ActorRuntime.ForceCancellationRequest> observed =
-                new AtomicReference<>();
-        AtomicReference<ActorRuntime.ActorHandle<String>> childRef =
-                new AtomicReference<>();
-        AtomicReference<ActorRuntime.ActorHandle<String>> grandchildRef =
-                new AtomicReference<>();
-        CountDownLatch grandchildCreated = new CountDownLatch(1);
-
+    void forceKillRevokesTheCompleteThreeNodeSubtreeAtomically()
+            throws Exception {
         try (ActorRuntime runtime = new ActorRuntime()) {
+            Tree tree = createThreeNodeTree(runtime);
+            AtomicReference<ActorRuntime.ForceCancellationRequest> observed =
+                    new AtomicReference<>();
+
             runtime.setForceCancellationTreeHook(request -> {
                 observed.set(request);
                 return true;
             });
 
-            ActorRuntime.ActorRef<String> root =
-                    runtime.spawnShared(() -> (message, context) -> {
-                        ActorRuntime.ActorHandle<String> child =
-                                context.runtime().spawnChildShared(
-                                        factoryContext ->
-                                                (childMessage, childContext) -> {
-                                                    if ("spawn-grandchild".equals(childMessage)) {
-                                                        grandchildRef.set(
-                                                                childContext.runtime()
-                                                                        .spawnChildShared(
-                                                                                grandFactory ->
-                                                                                        (grandMessage, grandContext) -> { }));
-                                                        grandchildCreated.countDown();
-                                                    }
-                                                });
-                        childRef.set(child);
-                        child.send("spawn-grandchild");
-                    });
-
-            root.send("spawn");
-            assertTrue(grandchildCreated.await(2, TimeUnit.SECONDS));
-
-            ActorRuntime.ActorControlHandle control = runtime.controlHandle(root);
-            assertTrue(control.kill());
-
+            assertTrue(tree.rootControl().kill());
             assertEquals(3, observed.get().targets().size(),
                     "force revoker must receive the complete structured subtree");
-            assertTrue(control.awaitTermination(2, TimeUnit.SECONDS));
-            assertTrue(childRef.get().awaitTermination(2, TimeUnit.SECONDS));
-            assertTrue(grandchildRef.get().awaitTermination(2, TimeUnit.SECONDS));
+
+            assertTrue(tree.rootControl().awaitTermination(2, TimeUnit.SECONDS));
+            assertTrue(tree.child().awaitTermination(2, TimeUnit.SECONDS));
+            assertTrue(tree.grandchild().awaitTermination(2, TimeUnit.SECONDS));
+
             assertInstanceOf(
                     ActorRuntime.ActorCancelledException.class,
-                    control.failure().orElseThrow());
+                    tree.rootControl().failure().orElseThrow());
             assertInstanceOf(
                     ActorRuntime.ActorCancelledException.class,
-                    childRef.get().failure().orElseThrow());
+                    tree.child().failure().orElseThrow());
             assertInstanceOf(
                     ActorRuntime.ActorCancelledException.class,
-                    grandchildRef.get().failure().orElseThrow());
+                    tree.grandchild().failure().orElseThrow());
         }
     }
+
+    private static Tree createThreeNodeTree(ActorRuntime runtime) throws Exception {
+        CountDownLatch childRequestedGrandchild = new CountDownLatch(1);
+
+        ActorRuntime.ActorRef<String> root =
+                runtime.spawnShared(() -> (message, context) -> {
+                    ActorRuntime.ActorHandle<String> child =
+                            context.runtime().spawnChildShared(
+                                    factoryContext ->
+                                            (childMessage, childContext) -> {
+                                                childContext.runtime()
+                                                        .spawnChildShared(
+                                                                grandFactoryContext ->
+                                                                        (grandMessage,
+                                                                         grandContext) -> { });
+                                                childRequestedGrandchild.countDown();
+                                            });
+                    child.send("spawn-grandchild");
+                });
+
+        root.send("spawn-tree");
+        assertTrue(childRequestedGrandchild.await(2, TimeUnit.SECONDS));
+
+        ActorRuntime.ActorControlHandle rootControl = runtime.controlHandle(root);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+
+        while (rootControl.childIds().isEmpty()
+                && System.nanoTime() < deadline) {
+            Thread.sleep(5);
+        }
+        assertEquals(1, rootControl.childIds().size());
+
+        ActorRuntime.ActorControlHandle child =
+                runtime.controlHandle(rootControl.childIds().get(0));
+        while (child.childIds().isEmpty()
+                && System.nanoTime() < deadline) {
+            Thread.sleep(5);
+        }
+        assertEquals(1, child.childIds().size());
+
+        ActorRuntime.ActorControlHandle grandchild =
+                runtime.controlHandle(child.childIds().get(0));
+
+        return new Tree(root, rootControl, child, grandchild);
+    }
+
+    private record Tree(
+            ActorRuntime.ActorRef<String> root,
+            ActorRuntime.ActorControlHandle rootControl,
+            ActorRuntime.ActorControlHandle child,
+            ActorRuntime.ActorControlHandle grandchild) {}
 }
