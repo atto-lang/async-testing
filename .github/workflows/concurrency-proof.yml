@@ -30,5 +30,14 @@ jobs:
           cc --version
           mvn -version
 
-      - name: Compile and run concurrency proof suite
+      - name: Compile focused concurrency contract with Java carriers
+        run: mvn -B -DskipTests -Dores.runtime.carriers=java test-compile
+
+      - name: Run focused concurrency contract with Java carriers
+        run: >
+          mvn -B -DtrimStackTrace=false -Dores.runtime.carriers=java
+          -Dtest=OresVMTest,OresSchedulerTest,ChannelRuntimeTest,ActorEventBusTest,ChannelSelectSyntaxTest,ConcurrencySyntaxContractTest
+          test
+
+      - name: Run full proof suite including native carrier coverage
         run: mvn -B -DtrimStackTrace=false test

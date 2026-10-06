@@ -14,9 +14,10 @@ It is intentionally designed to prove cross-layer invariants involving:
 - ActorGroup event bus delivery and backpressure
 - cancellation, fairness, progress, and carrier starvation safety
 
-The first proof branch is pinned to the active Oreslang source stack that includes
-PR #252 (channels/select/mailbox/cancellation) and PR #255 (ActorGroup event bus).
+The proof branch is pinned to the active integrated concurrency stack through PR #269:
+PR #252 (channels/select/mailbox/cancellation), PR #255 (ActorGroup event bus), and
+PR #269 (VM root scheduler bootstrap, Future<void> nb writech, and nb cb writech).
 
-Source snapshot: `ores-truffle-oreslang/oreslang-source.java@e1e84d071beebb59671eeae28e2344f9a6bc3940`.
+Source snapshot: `ores-truffle-oreslang/oreslang-source.java@1d68c0e2f7352c6c824b8fc40f6722be12fcb8e4`.
 
 See `PROOF_MATRIX.md` on the proof branch for the required invariants and known gaps.

@@ -2,9 +2,9 @@
 
 Pinned source snapshot:
 
-`ores-truffle-oreslang/oreslang-source.java@e1e84d071beebb59671eeae28e2344f9a6bc3940`
+`ores-truffle-oreslang/oreslang-source.java@1d68c0e2f7352c6c824b8fc40f6722be12fcb8e4`
 
-This is the head of the ActorGroup event-bus stack and includes the channel/select/mailbox work from PR #252.
+This is the PR #269 concurrency-contract head, stacked directly on the ActorGroup event-bus head and including the channel/select/mailbox work from PR #252.
 
 ## Executable proofs
 
@@ -15,8 +15,8 @@ This is the head of the ActorGroup event-bus stack and includes the channel/sele
 | Mailbox/channel unification | ActorCell mailbox transport is `ChannelRuntime.Channel<MessageEnvelope>` | executable |
 | `nb readch` lowering substrate | Pending channel Future can re-enter the actor through a runtime continuation envelope | executable |
 | `nb writech` Future surface | `writeAsync` returns a pending `OresFuture<void>` until a reader commits | executable |
-| `nb writech` callback substrate | The same write registration can enqueue a callback back through the actor mailbox/scheduler lease | executable runtime substrate |
-| select / nb select | `ChannelRuntime.SelectSet.selectAsync` is the one registration substrate; source parser supports static/dynamic nb select | covered by pinned runtime + syntax proof |
+| `nb writech` callback substrate | The same write registration can enqueue a callback back through the actor mailbox/scheduler lease | executable |
+| select / nb select | `ChannelRuntime.SelectSet.selectAsync` is the one registration substrate; source parser supports static/dynamic nb select | executable + syntax proof |
 | ActorGroup event bus | Subscription is channel-backed; event Future completion re-enters subscriber actor through mailbox continuation | executable |
 | Shared actors | Shared actor progresses on SHARED dispatcher | executable |
 | Iso/private actors | Private actor progresses on separate PRIVATE dispatcher | executable |
@@ -34,21 +34,9 @@ Already-ready operations work. A genuinely pending blocking operation currently 
 
 **Required proof before merge:** a source-level actor suspends on each pending operation, another actor continues on the same bounded dispatcher, and the suspended actor later resumes on a fresh dispatch without retaining a Java interpreter stack.
 
-### 2. `nb cb writech` syntax
+### 2. `nb cb writech` syntax — proven in this snapshot
 
-Required distinction:
-
-```ores
-val Future<void> f = nb writech output, value;
-
-nb cb writech output, value || -> {
-  // callback body
-};
-```
-
-The first form returns a Future. The `cb` form is a void callback surface. Its completion callback must be enqueued back to the owning actor/root scheduler domain; it may never run inline on the producer/channel-completion thread.
-
-The runtime substrate is proven by `ConcurrencyIntegrationProofTest`. Parser/type/lowering support is not yet present; the contract test is deliberately disabled until implemented.
+The PR #269 snapshot implements and tests both `nb writech` -> `Future<void>` and the void `nb cb writech ... || -> { ... }` callback surface. The callback path is required to re-enter through the owning actor scheduler lease rather than execute inline on the producer/channel-completion thread.
 
 ### 3. Untrusted actors
 
