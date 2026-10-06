@@ -53,57 +53,59 @@ are retained. Compiler fixes must be made upstream and adopted by changing the p
   collected by a separate one-carrier scheduler using select. Assertions cover
   fanout receipts, actor/scheduler ownership, unique delivery, and teardown.
 
-The group pipeline uses SHARED actors because the pinned group/event-bus policy
-restricts private membership/subscription. Separate tests cover PRIVATE and
-UNTRUSTED dispatchers and hungry dedicated carriers; this does not establish
-cross-kind group interoperability or hungry-group integration.
+The event-bus pipeline uses SHARED actors because private/isolated actors cannot
+subscribe to the zero-copy shared event stream. This restriction concerns
+subscription, not group membership. `ActorGroupMailmanTest` separately proves a
+mixed SHARED/PRIVATE/UNTRUSTED group delivering through a CONTROL Mailman.
+HungryActor has no group membership API.
 
-Local validation on macOS arm64 / Homebrew JDK 25: 169 harness tests passed
-with the matching JNI carrier library, no failures/errors/skips. Optimizing
-Graal/JVMCI execution is not claimed. The broader upstream compiler suite ran
-606 tests with one pre-existing mixed Java bridge failure; the same test failed
-with the unmodified parent compiler source. Ten sequential repeated runs passed: 170 combined-test executions and 10,000
-completion/stop cycles. Remote CI run 37415313975 did not execute any job: GitHub
-reported failed recent payments or a spending-limit restriction. Linux/JDK 21
-validation remains outstanding; this is not a CI test failure.
+Local validation on macOS arm64 / Homebrew JDK 25: 177 harness tests passed,
+with the matching JNI carrier library and no failures/errors/skips. The separate
+persistent actor stack passes 27 focused tests. Optimizing Graal/JVMCI execution
+is not claimed. See the validation report for hosted run results.
+
+## Newly closed runtime/lowering gaps
+
+### Pending blocking source waits inside shared actors
+
+`SourceActorWaitProofTest` executes genuinely pending `readch`, `writech`,
+`await nb readch`, and `select`. With shared parallelism fixed at one, a peer
+actor runs on that same carrier while the source waiter remains suspended. The
+host completes the real rendezvous; the waiter resumes with the same actor id
+and a fresh owning-scheduler dispatch, producing exactly `42`. A test-only,
+allowlisted host bridge supplies the real channel and observes actor context.
+The peer is a runtime actor; this is not a source-to-source actor handshake.
+Cancellation/late-completion remains covered by the runtime task tests.
+
+### ActorMailman
+
+The compiler pin includes the compatible CONTROL-Mailman implementation.
+`ActorGroupMailmanTest` checks 96 concurrent emissions through one serialized
+logical Mailman, exact sequence order, CONTROL/root ownership, reply delivery
+through actor mailboxes, authority rejection, bounded outbox overflow and
+teardown accounting, and SHARED/PRIVATE/UNTRUSTED membership and delivery.
+The overflow/late-task test deliberately pauses its dispatcher; other tests
+execute the real VM CONTROL pool.
 
 ## Contract gaps this harness must not pretend are solved
 
-### 1. Pending blocking source waits inside actors
-
-Arbitrary pending blocking actor `await`, `readch`, `writech`, and blocking `select` still need
-complete source-frame lowering onto the resumable `OresScheduler.Task` ABI.
-
-Already-ready operations work. A genuinely pending blocking operation must never park a bounded
-actor carrier.
-
-**Required proof before calling this complete:** a source-level actor suspends on each pending
-operation, another actor continues on the same bounded dispatcher, and the suspended actor later
-resumes on a fresh dispatch without retaining a Java interpreter stack.
-
-### 2. ActorMailman
-
-This converged harness has ActorGroups, channel-backed mailboxes, CONTROL/root scheduling, and the
-event bus, but it does not yet contain the separate `ActorMailman` / bounded group-outbox stack.
-
-Do not infer Mailman correctness from ActorGroup/event-bus tests. Converge that stack first, then
-prove:
-
-- one logical serialized mailman per group;
-- bounded MPSC group outbox;
-- mailman executes on CONTROL rather than creating one scheduler per actor;
-- mailman never scans/selects every actor mailbox;
-- mailbox writes enqueue runnable actors;
-- cancellation/teardown cannot strand outbox entries.
-
-### 3. Persistent `actor` classes / full `spawn` syntax convergence
+### 1. Persistent `actor` classes / full `spawn` syntax convergence
 
 The harness proves runtime `spawnShared`, `spawnPrivate`, `spawnUntrusted`, actor-callable
 syntax, ActorGroups, channels, and scheduler behavior. The final persistent
 `define actor Worker as ... end` object model and full source-level `spawn` surface are still on
-a separate actor-class stack and should be converged before claiming that syntax here.
+a separate actor-class stack. A separate CI job runs that exact compiler tree,
+including a source Counter spawned once and invoked repeatedly with awaited
+protocol Futures (`42`, then `50`). This proves persistent state on that branch,
+not convergence with this channel/select compiler pin.
 
-### 4. Physical untrusted-isolate revocation
+### 2. Hungry ActorGroups
+
+Standalone HungryActor tests prove dedicated JNI carriers and ordinary-dispatcher
+progress. HungryActor has a separate UUID identity and cannot join ActorRuntime
+ActorGroups. Dedicated hungry group membership remains an implementation gap.
+
+### 3. Physical untrusted-isolate revocation
 
 The independent UNTRUSTED dispatcher, policy bulkhead, quotas, and force-cancel ordering contract
 are executable here. A real secondary Graal/native isolation domain must still demonstrate

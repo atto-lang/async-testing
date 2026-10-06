@@ -79,3 +79,28 @@ Linux/macOS × JDK 21/25 job. See the proof matrix for the remaining gaps.
 
 `ActorStopMailboxRaceTest` exercises 1,000 task-completion/normal-stop races per
 run. The compiler pin also fixes mailbox polling racing with channel close.
+
+## Remaining-gap validation (2026-10-06)
+
+`SourceActorWaitProofTest` proves genuinely pending source `readch`, `writech`,
+`await nb readch`, and `select` on a single shared carrier: another actor executes
+before the host releases the rendezvous, and the source actor resumes with the
+same identity on a fresh scheduler dispatch. Its allowlisted test bridge supplies
+a real channel; it does not simulate the runtime or scheduler.
+
+`ActorGroupMailmanTest` proves serialized CONTROL delivery, sequencing, authority
+boundaries, bounded outbox cleanup, and a mixed SHARED/PRIVATE/UNTRUSTED group.
+The expanded main-stack harness has 177 tests.
+
+A separate CI job builds persistent actor compiler commit
+`7cb388fb483babef5fa7bbf587280874bdae71b7` (tree
+`5830febbe3d45ef9152bc8246a73fe7e5a07f4fe`) and runs 27 syntax/spawn/group tests.
+The added source Counter executes `spawn`, awaits multiple protocol calls, and
+retains state (`42`, then `50`). That older actor-class implementation is a
+separate stack; these results do not prove persistent classes combined with the
+new channel/select implementation.
+
+HungryActor remains a standalone dedicated-native-carrier API. Its existing
+carrier and starvation tests pass, but it cannot join ActorRuntime ActorGroups.
+Hungry group membership and unified persistent-class/channel lowering therefore
+remain implementation gaps, not passing coverage.

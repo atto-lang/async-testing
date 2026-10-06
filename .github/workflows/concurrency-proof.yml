@@ -52,3 +52,25 @@ jobs:
 
       - name: Repeat pending-operation and fanout proofs
         run: ./scripts/stress.sh 10
+
+  persistent-actor-proof:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: compiler-mirror/7cb388fb483babef5fa7bbf587280874bdae71b7
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: maven
+      - name: Verify exact persistent actor compiler tree
+        run: test "$(git rev-parse 'HEAD^{tree}')" = 5830febbe3d45ef9152bc8246a73fe7e5a07f4fe
+      - name: Execute persistent actor syntax and group proofs
+        run: mvn -B -Dtest=ActorSpawnLanguageTest,ActorSpawnRuntimeTest,ActorGroupRuntimeTest test
