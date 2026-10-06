@@ -20,10 +20,20 @@ if [ ! -d .compiler/.git ]; then
   fi
   git init -q .compiler
 fi
-if ! git -C .compiler cat-file -e "$revision^{commit}" 2>/dev/null; then
-  git -C .compiler fetch --depth 1 "$source_url" "$revision"
+expected_tree=$(cat compiler-tree.txt)
+# CI may provide a same-repository mirror commit with the identical source tree.
+# Its commit identity differs, but the implementation must match byte-for-byte.
+if [ "$(git -C .compiler rev-parse 'HEAD^{tree}' 2>/dev/null || true)" = "$expected_tree" ]; then
+  git -C .compiler checkout --detach --force HEAD
+else
+  if ! git -C .compiler cat-file -e "$revision^{commit}" 2>/dev/null; then
+    git -C .compiler fetch --depth 1 "$source_url" "$revision"
+  fi
+  git -C .compiler checkout --detach --force "$revision"
 fi
-git -C .compiler checkout --detach --force "$revision"
+[ "$(git -C .compiler rev-parse 'HEAD^{tree}')" = "$expected_tree" ] || {
+  echo "compiler source tree does not match compiler-tree.txt" >&2; exit 1;
+}
 # Version the installed dependency by commit, avoiding mutable SNAPSHOT collisions.
 (cd .compiler && mvn -B org.codehaus.mojo:versions-maven-plugin:2.18.0:set \
   -DnewVersion="$version" -DgenerateBackupPoms=false && mvn -B -DskipTests clean install)

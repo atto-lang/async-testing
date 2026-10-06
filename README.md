@@ -27,21 +27,25 @@ mvn -Dores.thread.native.path="$PWD/.compiler/target/native/liboresthread.dylib"
 Use `liboresthread.so` on Linux. The native library must come from the same
 upstream checkout as the JAR.
 
-## CI access
+## CI source mirror
 
-Both repositories are private. Configure an Actions secret named
-`ORESLANG_SOURCE_TOKEN` with read-only Contents access to `oreslang-source.java`
-(a fine-grained token or GitHub App installation token). The harness repository's
-built-in `GITHUB_TOKEN` cannot check out another private repository. CI checks out
-the pinned compiler with that token and does not persist its credentials.
-Local runs use your existing Git authentication.
+CI checks out `compiler-mirror/<upstream-SHA>` from this same repository using
+its ordinary `GITHUB_TOKEN`. That branch contains an immutable source-only
+snapshot, outside the harness's main branch. `compiler-tree.txt` records the
+upstream Git tree; the script rejects a mirror unless that tree matches exactly.
+No cross-repository secret or token is required. Local runs can still fetch the
+original compiler using existing Git authentication.
+
+The alternate-org validation carrier uses the same mirror technique so it can
+build with its own Actions allocation. Mirror branches are test transport, not a
+second implementation: fixes remain upstream and mirrors are replaced by pin.
 
 ## Updating the compiler
 
-Commit implementation fixes to `oreslang-source.java`, then update both
-`compiler-revision.txt` and `oreslang.version` in `pom.xml` to the full upstream
+Commit implementation fixes to `oreslang-source.java`, then update `compiler-revision.txt`, `compiler-tree.txt`, and `oreslang.version` in `pom.xml` to the full upstream
 commit SHA (`0.1.0-<SHA>` for the Maven version). The script checks that these pins
-agree. Run `./scripts/test.sh` before submitting the update.
+agree. Publish the matching `compiler-mirror/<SHA>` source tree through the
+GitHub connector, then run `./scripts/test.sh` before submitting the update.
 
 The current pin follows the concurrency integration stack associated with
 upstream PR #269, including the fixes previously carried locally by this harness.
