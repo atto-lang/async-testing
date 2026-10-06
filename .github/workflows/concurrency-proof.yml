@@ -69,8 +69,13 @@ jobs:
         with:
           distribution: temurin
           java-version: 25
-          cache: maven
       - name: Verify exact persistent actor compiler tree
         run: test "$(git rev-parse 'HEAD^{tree}')" = f951ae8363f05e328d383f040a7e8fae1e3614fe
       - name: Execute persistent actor syntax and group proofs
-        run: mvn -B -Dtest=ActorSpawnLanguageTest,ActorSpawnRuntimeTest,ActorGroupRuntimeTest test
+        run: |
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+          mvn -version
+          mvn -B -Dmaven.repo.local="$RUNNER_TEMP/persistent-m2" \
+            -Dmaven.compiler.fork=true -Dmaven.compiler.executable="$JAVA_HOME/bin/javac" \
+            -Dtest=ActorSpawnLanguageTest,ActorSpawnRuntimeTest,ActorGroupRuntimeTest test
