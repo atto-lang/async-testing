@@ -1,16 +1,14 @@
 # Concurrency proof matrix
 
-Upstream implementation baseline:
+Upstream implementation is the exact Git revision in `compiler-revision.txt`,
+consumed as the test-scoped `dev.oreslang:oreslang-source` Maven dependency.
+`./scripts/test.sh` builds and installs that revision and its native carrier
+library before running these proofs. There is no local compiler/runtime copy.
 
-`ores-truffle-oreslang/oreslang-source.java@2651aa11603a3fbc78f67b475ba3311e667fa729`
-
-That is the head of PR #269 / `integration/concurrency-contract-20261006`, based directly on
-`e1e84d071beebb59671eeae28e2344f9a6bc3940` from the ActorGroup event-bus stack.
-This harness also carries focused corrections discovered by executing the combined suite:
-single-source async `main` enters the CONTROL root scheduler, actor cancellation identity is
-separate from carrier interrupts, lifecycle/channel capabilities fail closed at mailbox
-boundaries, force-revocation hooks cannot re-enter actor creation, and actor-owned group teardown
-completes before termination becomes externally observable.
+The pin follows PR #269 / `integration/concurrency-contract-20261006`, with
+upstream fixes for Darwin pthread declarations, closed subscription teardown,
+and aggregation of void Future results. Newer upstream isolation protections
+are retained. Compiler fixes must be made upstream and adopted by changing the pin.
 
 ## Executable proofs
 
