@@ -57,3 +57,50 @@ an absolute path to its Git checkout. The full commit pin still applies.
 
 See `PROOF_MATRIX.md` for the invariants covered and outstanding contract gaps.
 Passing this suite does not close those gaps.
+
+## Combined proofs and repeated runs
+
+`ChannelLanguageCombinationTest` executes six real source programs, including
+async/await + rendezvous read/write Futures, dynamic select, buffered blocking
+operations, shared/isoactor callable results, `nb cb writech`, and detached
+`nb select` arms. The compiler pin includes a fix for suspension detection in
+nested call arguments/receivers: `stdio.stdout.write(worker())` must print the
+actor result rather than an internal Future object.
+
+`ActorTaskChannelCombinationTest` exercises eight pending operation/domain
+combinations (read, write, select-read, select-write × SHARED/PRIVATE) and actor
+cancellation. `ActorGroupChannelPipelineTest` connects reliable event fanout,
+eight shared actor tasks on one carrier, channel writes, and scheduler select.
+These tests distinguish the resumable runtime ABI from source lowering.
+
+After `./scripts/test.sh`, run `./scripts/stress.sh 10` to repeat all four
+classes in fresh Maven test processes. CI runs these repetitions in every
+Linux/macOS × JDK 21/25 job. See the proof matrix for the remaining gaps.
+
+`ActorStopMailboxRaceTest` exercises 1,000 task-completion/normal-stop races per
+run. The compiler pin also fixes mailbox polling racing with channel close.
+
+## Remaining-gap validation (2026-10-06)
+
+`SourceActorWaitProofTest` proves genuinely pending source `readch`, `writech`,
+`await nb readch`, and `select` on a single shared carrier: another actor executes
+before the host releases the rendezvous, and the source actor resumes with the
+same identity on a fresh scheduler dispatch. Its allowlisted test bridge supplies
+a real channel; it does not simulate the runtime or scheduler.
+
+`ActorGroupMailmanTest` proves serialized CONTROL delivery, sequencing, authority
+boundaries, bounded outbox cleanup, and a mixed SHARED/PRIVATE/UNTRUSTED group.
+The expanded main-stack harness has 178 tests.
+
+A separate CI job builds persistent actor compiler commit
+`9e48cc5d73e718e439677f0c564af023052efc8e` (tree
+`f951ae8363f05e328d383f040a7e8fae1e3614fe`) and runs 27 syntax/spawn/group tests.
+The added source Counter executes `spawn`, awaits multiple protocol calls, and
+retains state (`42`, then `50`). That older actor-class implementation is a
+separate stack; these results do not prove persistent classes combined with the
+new channel/select implementation.
+
+HungryActor remains a standalone dedicated-native-carrier API. Its existing
+carrier and starvation tests pass, but it cannot join ActorRuntime ActorGroups.
+Hungry group membership and unified persistent-class/channel lowering therefore
+remain implementation gaps, not passing coverage.
