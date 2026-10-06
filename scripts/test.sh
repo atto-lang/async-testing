@@ -34,6 +34,21 @@ fi
 [ "$(git -C .compiler rev-parse 'HEAD^{tree}')" = "$expected_tree" ] || {
   echo "compiler source tree does not match compiler-tree.txt" >&2; exit 1;
 }
+
+# A previous build, ignored file, or local experiment must not participate in
+# an exact-tree proof. Reset tracked state and remove every untracked/ignored
+# path before Maven resolves or compiles the pinned source tree.
+git -C .compiler reset --hard -q HEAD
+git -C .compiler clean -ffdqx
+[ "$(git -C .compiler rev-parse 'HEAD^{tree}')" = "$expected_tree" ] || {
+  echo "compiler tree changed while cleaning checkout" >&2; exit 1;
+}
+if [ -n "$(git -C .compiler status --porcelain --untracked-files=all)" ]; then
+  echo "compiler checkout is dirty after exact-tree reset" >&2
+  git -C .compiler status --short >&2
+  exit 1
+fi
+
 # Version the installed dependency by commit, avoiding mutable SNAPSHOT collisions.
 (cd .compiler && mvn -B org.codehaus.mojo:versions-maven-plugin:2.18.0:set \
   -DnewVersion="$version" -DgenerateBackupPoms=false && mvn -B -DskipTests clean install)
