@@ -49,3 +49,6 @@ jobs:
 
       - name: Compile and run concurrency proof suite
         run: ./scripts/test.sh
+
+      - name: Repeat pending-operation and fanout proofs
+        run: ./scripts/stress.sh 10

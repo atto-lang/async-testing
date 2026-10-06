@@ -57,3 +57,25 @@ an absolute path to its Git checkout. The full commit pin still applies.
 
 See `PROOF_MATRIX.md` for the invariants covered and outstanding contract gaps.
 Passing this suite does not close those gaps.
+
+## Combined proofs and repeated runs
+
+`ChannelLanguageCombinationTest` executes six real source programs, including
+async/await + rendezvous read/write Futures, dynamic select, buffered blocking
+operations, shared/isoactor callable results, `nb cb writech`, and detached
+`nb select` arms. The compiler pin includes a fix for suspension detection in
+nested call arguments/receivers: `stdio.stdout.write(worker())` must print the
+actor result rather than an internal Future object.
+
+`ActorTaskChannelCombinationTest` exercises eight pending operation/domain
+combinations (read, write, select-read, select-write × SHARED/PRIVATE) and actor
+cancellation. `ActorGroupChannelPipelineTest` connects reliable event fanout,
+eight shared actor tasks on one carrier, channel writes, and scheduler select.
+These tests distinguish the resumable runtime ABI from source lowering.
+
+After `./scripts/test.sh`, run `./scripts/stress.sh 10` to repeat all four
+classes in fresh Maven test processes. CI runs these repetitions in every
+Linux/macOS × JDK 21/25 job. See the proof matrix for the remaining gaps.
+
+`ActorStopMailboxRaceTest` exercises 1,000 task-completion/normal-stop races per
+run. The compiler pin also fixes mailbox polling racing with channel close.

@@ -34,6 +34,36 @@ are retained. Compiler fixes must be made upstream and adopted by changing the p
 | Event publisher isolation | Event publisher never runs subscriber guest callback inline | executable |
 | Native carriers | Actor and scheduler carrier tests execute against native carrier support on Linux/macOS | executable |
 
+## Combined executable coverage
+
+- Six source execution tests combine async/await, pending channel registrations,
+  Future<void>, dynamic/static select, actor/isoactor callables, callback writes,
+  and detached select arms. Exact output assertions detect internal Future leakage.
+- Eight runtime ABI tests cross SHARED/PRIVATE with pending read/write/select-read/
+  select-write. Each proves peer progress on the same one-carrier dispatcher,
+  actor identity, fresh scheduler dispatch, producer isolation, exactly one
+  resume, and withdrawal of losing select registrations.
+- Actor-task cancellation owns and withdraws an outstanding select-write; later
+  traffic must reach a live reader without delivering the cancelled payload.
+- A 1,000-cycle completion/stop regression protects channel-backed mailbox
+  polling against concurrent normal teardown. The pin serializes polling with
+  close/drain under the actor lifecycle lock.
+- Eight shared actors in one group suspend on reliable event subscriptions,
+  resume through their mailboxes, write to zero-capacity channels, and are
+  collected by a separate one-carrier scheduler using select. Assertions cover
+  fanout receipts, actor/scheduler ownership, unique delivery, and teardown.
+
+The group pipeline uses SHARED actors because the pinned group/event-bus policy
+restricts private membership/subscription. Separate tests cover PRIVATE and
+UNTRUSTED dispatchers and hungry dedicated carriers; this does not establish
+cross-kind group interoperability or hungry-group integration.
+
+Local validation on macOS arm64 / Homebrew JDK 25: 169 harness tests passed
+with the matching JNI carrier library, no failures/errors/skips. Optimizing
+Graal/JVMCI execution is not claimed. The broader upstream compiler suite ran
+606 tests with one pre-existing mixed Java bridge failure; the same test failed
+with the unmodified parent compiler source. Remote CI is separate evidence.
+
 ## Contract gaps this harness must not pretend are solved
 
 ### 1. Pending blocking source waits inside actors
