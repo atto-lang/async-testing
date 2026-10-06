@@ -33,3 +33,16 @@ mvn -B -Dtest=FormalRuntimeTraceRefinementTest test
 ```
 
 The formal/refinement tests intentionally use the same pinned runtime/compiler snapshot as the rest of this repository.
+
+
+## Channel rendezvous refinement
+
+`FormalChannelRendezvousTraceRefinementTest` checks the zero-capacity channel
+model against the pinned real `ChannelRuntime`:
+
+- read-first and write-first arrival orders both produce one handoff and no
+  residual value;
+- cancelling a read detaches it before a later write;
+- cancelling a write prevents its old value from reaching a later reader;
+- close fails pending read/write Futures and later admission does not create a
+  delivery.
