@@ -65,3 +65,15 @@ model against the pinned real `ChannelRuntime`:
 - cancelling a write prevents its old value from reaching a later reader;
 - close fails pending read/write Futures and later admission is rejected without
   creating a delivery.
+
+
+## Buffered channel refinement
+
+`FormalBufferedChannelTraceRefinementTest` checks the capacity-two buffered
+channel model against the pinned real `ChannelRuntime`:
+
+- all six orderings of three distinct messages preserve FIFO delivery;
+- the third immediate write is rejected while two values are buffered;
+- after one read frees capacity, retrying that write succeeds;
+- exactly the three admitted values are delivered exactly once;
+- close fences later public reads/writes without fabricating a delivery.
