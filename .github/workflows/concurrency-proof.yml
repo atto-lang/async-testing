@@ -49,3 +49,33 @@ jobs:
 
       - name: Compile and run concurrency proof suite
         run: ./scripts/test.sh
+
+      - name: Repeat pending-operation and fanout proofs
+        run: ./scripts/stress.sh 10
+
+  persistent-actor-proof:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: compiler-mirror/9e48cc5d73e718e439677f0c564af023052efc8e
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: 25
+      - name: Verify exact persistent actor compiler tree
+        run: test "$(git rev-parse 'HEAD^{tree}')" = f951ae8363f05e328d383f040a7e8fae1e3614fe
+      - name: Execute persistent actor syntax and group proofs
+        run: |
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+          mvn -version
+          mvn -B -Dmaven.repo.local="$RUNNER_TEMP/persistent-m2" \
+            -Dmaven.compiler.fork=true -Dmaven.compiler.executable="$JAVA_HOME/bin/javac" \
+            -Dtest=ActorSpawnLanguageTest,ActorSpawnRuntimeTest,ActorGroupRuntimeTest test
