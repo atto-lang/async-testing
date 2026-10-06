@@ -52,3 +52,16 @@ the pinned real runtime:
 Ownership/proxy trace refinement remains intentionally deferred until the
 allocation-domain/allocator-lowering stack is reconciled onto the runtime pinned
 by this repository.
+
+
+## Channel rendezvous refinement
+
+`FormalChannelRendezvousTraceRefinementTest` checks the zero-capacity channel
+model against the pinned real `ChannelRuntime`:
+
+- read-first and write-first arrival orders both produce one handoff and no
+  residual value;
+- cancelling a read detaches it before a later write;
+- cancelling a write prevents its old value from reaching a later reader;
+- close fails pending read/write Futures and later admission is rejected without
+  creating a delivery.
