@@ -252,7 +252,7 @@ public final class Ast {
 
     public sealed interface Stmt permits BindingStmt, DestructureStmt, ReturnStmt, ExprStmt, DeferStmt,
             BlockStmt, BreakStmt, ContinueStmt, IfStmt, MatchStmt, SwitchStmt, TryStmt,
-            ForOfStmt, ForOfDestructureStmt, ForStmt, LoopStmt, SelectStmt { }
+            ForOfStmt, ForOfDestructureStmt, ForStmt, LoopStmt, SelectStmt, NbWriteCallbackStmt { }
 
     public record BindingStmt(BindingKind kind, TypeRef declaredType, String name, Expr initializer) implements Stmt { }
     public record DestructureBinding(BindingKind kind, String name) {
@@ -378,6 +378,30 @@ public final class Ast {
     public enum ChannelOperation { READ, WRITE, DEFAULT }
     public enum WaitMode { BLOCKING, NONBLOCKING, IMMEDIATE }
     public enum SelectPolicy { FAIR, PRIORITY, RANDOM }
+
+    /**
+     * Statement-only callback form for a nonblocking channel write.
+     *
+     * <p>Plain {@code nb writech} remains an expression returning
+     * {@code Future<void>}. The explicit {@code cb} spelling exposes no Future
+     * value to guest code; lowering schedules this zero-argument callback back
+     * into the owning actor domain after the write registration completes.</p>
+     */
+    public record NbWriteCallbackStmt(
+            Expr channel,
+            Expr value,
+            LambdaExpr callback) implements Stmt {
+        public NbWriteCallbackStmt {
+            if (channel == null || value == null || callback == null) {
+                throw new IllegalArgumentException(
+                        "nb cb writech requires channel, value, and callback");
+            }
+            if (!callback.params().isEmpty()) {
+                throw new IllegalArgumentException(
+                        "nb cb writech callback must take zero parameters");
+            }
+        }
+    }
 
     public record SelectArm(
             ChannelOperation operation,
