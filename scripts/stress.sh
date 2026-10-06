@@ -20,6 +20,6 @@ round=1
 while [ "$round" -le "$runs" ]; do
   echo "Concurrency repetition $round/$runs"
   mvn -B "-Dores.thread.native.path=$root/.compiler/target/native/$library" \
-    -Dtest=ActorTaskChannelCombinationTest,ActorGroupChannelPipelineTest,ChannelLanguageCombinationTest,ActorStopMailboxRaceTest,SourceActorWaitProofTest,ActorGroupMailmanTest test
+    -Dtest=ActorTaskChannelCombinationTest,ActorGroupChannelPipelineTest,ChannelLanguageCombinationTest,ActorStopMailboxRaceTest,SourceActorWaitProofTest,ActorGroupMailmanTest,ActorAsyncFinalizationProofTest test
   round=$((round + 1))
 done

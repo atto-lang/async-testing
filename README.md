@@ -90,11 +90,11 @@ a real channel; it does not simulate the runtime or scheduler.
 
 `ActorGroupMailmanTest` proves serialized CONTROL delivery, sequencing, authority
 boundaries, bounded outbox cleanup, and a mixed SHARED/PRIVATE/UNTRUSTED group.
-The expanded main-stack harness has 177 tests.
+The expanded main-stack harness has 178 tests.
 
 A separate CI job builds persistent actor compiler commit
-`7cb388fb483babef5fa7bbf587280874bdae71b7` (tree
-`5830febbe3d45ef9152bc8246a73fe7e5a07f4fe`) and runs 27 syntax/spawn/group tests.
+`9e48cc5d73e718e439677f0c564af023052efc8e` (tree
+`f951ae8363f05e328d383f040a7e8fae1e3614fe`) and runs 27 syntax/spawn/group tests.
 The added source Counter executes `spawn`, awaits multiple protocol calls, and
 retains state (`42`, then `50`). That older actor-class implementation is a
 separate stack; these results do not prove persistent classes combined with the

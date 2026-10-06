@@ -59,7 +59,7 @@ subscription, not group membership. `ActorGroupMailmanTest` separately proves a
 mixed SHARED/PRIVATE/UNTRUSTED group delivering through a CONTROL Mailman.
 HungryActor has no group membership API.
 
-Local validation on macOS arm64 / Homebrew JDK 25: 177 harness tests passed,
+Local validation on macOS arm64 / Homebrew JDK 25: 178 harness tests passed,
 with the matching JNI carrier library and no failures/errors/skips. The separate
 persistent actor stack passes 27 focused tests. Optimizing Graal/JVMCI execution
 is not claimed. See the validation report for hosted run results.
