@@ -5,31 +5,35 @@ This repository is an executable integration harness for the Oreslang concurrenc
 It is intentionally designed to prove cross-layer invariants involving:
 
 - OresFuture / Awaitable / async-await scheduler resumption
+- the VM-owned CONTROL/root scheduler before `main`
 - actor spawn and actor execution domains
 - shared, private/iso, untrusted, and hungry actors
-- ActorGroup / ActorMailman routing
-- mailbox = policy around Channel<Envelope>
-- readch / writech / nb readch / nb writech
+- mailbox = policy around `Channel<Envelope>`
+- readch / writech / nb readch / nb writech / nb cb writech
 - static and dynamic select / nb select
-- ActorGroup event bus delivery and backpressure
-- cancellation, fairness, progress, and carrier starvation safety
+- ActorGroup event-bus delivery and backpressure
+- cancellation, fairness, progress, and carrier-starvation safety
 
-The first proof branch is pinned to the active Oreslang source stack that includes
-PR #252 (channels/select/mailbox/cancellation) and PR #255 (ActorGroup event bus).
+The current proof branch tracks the active convergence work in
+`oreslang-source.java` PR #269.
 
-Source snapshot: `ores-truffle-oreslang/oreslang-source.java@e1e84d071beebb59671eeae28e2344f9a6bc3940`.
+Pinned concurrency source:
+`ores-truffle-oreslang/oreslang-source.java@8aef043fa8257c1aece5cb030bd4620cca10bbaa`.
 
-See `PROOF_MATRIX.md` on the proof branch for the required invariants and known gaps.
+The harness also retains its own proven fixes from PR #2 for Darwin pthread
+declarations, closed channel/subscription teardown, `Future<void>` typing, and
+null-valued void-future aggregation.
 
-Run the native carrier build and proof suite with `mvn clean test` (JDK 21 or 25,
-plus a C compiler on Linux/macOS). CI covers both platforms and JDK versions.
+Run the proof suite with:
 
-The pinned snapshot includes local fixes for Darwin pthread declarations,
-closed-mailbox/subscription teardown, aggregation of void Future results, and
-the `Future<void>` channel-write type. The proof tests use bounded waits and
-explicitly arm the rendezvous read before starting its producer.
+```sh
+mvn -B -DtrimStackTrace=false clean test
+```
 
-The enabled suite contains 12 tests. One additional `nb cb writech` syntax
-contract remains deliberately disabled until parser/type/lowering support is
-implemented; passing the enabled tests does not close the other gaps in
-`PROOF_MATRIX.md`.
+CI exercises Linux and macOS on JDK 21 and 25. When the source organization
+cannot allocate a runner, validate the exact Git tree in a funded carrier and
+verify the carrier tree SHA matches before treating the run as evidence.
+
+See `PROOF_MATRIX.md` for executable invariants and deliberately unresolved
+contract gaps. In particular, pending blocking source-level actor waits still
+need true resumable source-frame lowering and must not be represented as solved.
