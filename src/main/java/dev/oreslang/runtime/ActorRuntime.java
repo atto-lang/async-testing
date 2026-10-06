@@ -2054,6 +2054,7 @@ public final class ActorRuntime implements AutoCloseable {
             IsolatePolicy policy,
             BehaviorFactory<M> behaviorFactory,
             boolean trustedFactory) {
+        requireNoForceCancellationHookReentry("spawn actors");
         requireCallerRuntimeAffinity("spawn actors");
         Objects.requireNonNull(kind);
         Objects.requireNonNull(policy);
@@ -2816,9 +2817,6 @@ public final class ActorRuntime implements AutoCloseable {
         if (cell != null && cell.stopped.get()) {
             throw new ActorCancellationSignal("actor execution stopped");
         }
-        if (Thread.currentThread().isInterrupted()) {
-            throw new ActorCancellationSignal("actor execution interrupted");
-        }
         if (cell != null && cell.kind == ActorKind.UNTRUSTED) {
             if (--cell.untrustedFuelRemaining < 0) {
                 throw new UntrustedActorQuotaExceededException(
@@ -3416,6 +3414,14 @@ public final class ActorRuntime implements AutoCloseable {
         if (++nodes[0] > MAX_MESSAGE_GRAPH_NODES) {
             throw new IllegalArgumentException(
                     "actor message graph exceeds maximum node count " + MAX_MESSAGE_GRAPH_NODES);
+        }
+        if (value instanceof ActorHandle<?> || value instanceof ActorControlHandle) {
+            throw new SecurityException(
+                    "actor lifecycle authority cannot cross actor mailboxes");
+        }
+        if (value instanceof ChannelRuntime.Channel<?>) {
+            throw new IllegalArgumentException(
+                    "execution-domain local Channel cannot cross actor boundaries");
         }
         if (value == null || isScalar(value)
                 || value instanceof ActorRuntime.ActorRef<?>
