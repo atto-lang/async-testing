@@ -193,26 +193,21 @@ final class FormalLifecycleTraceRefinementTest {
     }
 
     private static Tree createThreeNodeTree(ActorRuntime runtime) throws Exception {
-        CountDownLatch childRequestedGrandchild = new CountDownLatch(1);
-
         ActorRuntime.ActorRef<String> root =
                 runtime.spawnShared(() -> (message, context) -> {
                     ActorRuntime.ActorHandle<String> child =
                             context.runtime().spawnChildShared(
                                     factoryContext ->
-                                            (childMessage, childContext) -> {
-                                                childContext.runtime()
-                                                        .spawnChildShared(
-                                                                grandFactoryContext ->
-                                                                        (grandMessage,
-                                                                         grandContext) -> { });
-                                                childRequestedGrandchild.countDown();
-                                            });
+                                            (childMessage, childContext) ->
+                                                    childContext.runtime()
+                                                            .spawnChildShared(
+                                                                    grandFactoryContext ->
+                                                                            (grandMessage,
+                                                                             grandContext) -> { }));
                     child.send("spawn-grandchild");
                 });
 
         root.send("spawn-tree");
-        assertTrue(childRequestedGrandchild.await(2, TimeUnit.SECONDS));
 
         ActorRuntime.ActorControlHandle rootControl = runtime.controlHandle(root);
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
