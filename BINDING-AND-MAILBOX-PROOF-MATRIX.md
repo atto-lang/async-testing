@@ -1,8 +1,8 @@
 # Binding/reference and actor-mailbox proof matrix
 
-**Acceptance contract, not a statement of support in the current compiler pin.** This document may land independently of the compiler implementation. Every case below requires compiler-backed evidence before a pin or API is promoted.
+**Executable coverage:** `BindingMailboxContractTest` runs seven acceptance groups against the pinned compiler artifact: binding modes, inferred readonly structs, closure/borrow boundaries, local callable ownership transfer, actor payload rejection, select bindings, and contextual/removed syntax. Existing scheduler, cancellation and source-wait suites provide runtime coverage. Unlisted combinations remain acceptance requirements.
 
-Compiler branch: [oreslang-source.java #411](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/411). This branch is a coordination/acceptance plan; do not claim test pass until the test harness is pinned to the exact validated compiler tree.
+Compiler branch: [oreslang-source.java #411](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/411). The convergence stack is merged. The revision, tree and Maven dependency pins identify the exact implementation used by this harness.
 
 ### Language conformance
 
@@ -16,7 +16,7 @@ Compiler branch: [oreslang-source.java #411](https://github.com/ores-truffle-ore
 ### Ownership and channel cases
 
 7. Reject mutate-while-shared-borrowed, dual exclusive borrows, use-after-move, aliased writes, mutable closure captures through readonly views, and borrow across illegal await/actor-turn boundaries.
-8. Permit local channel transport of callable/object references *only after* capture/lifetime/domain checks are implemented; current compiler deliberately rejects function-bearing channel types.
+8. Permit local channel transport of callable/object references *only after* capture/lifetime/domain checks are implemented; the pinned compiler admits owned callable payloads and rejects sender reuse; actor mail still forbids them.
 9. Actor mailbox rejects functions and borrowed/raw pointers **transitively**, including nested Option, List, Tuple, structs and every reachable declared field; serialize owned values without preserving mutable aliases across actors.
 10. Scheduler suspends a blocking select without holding a native carrier; bounded nonblocking selections; no busy-spin/future leaks on `do nb select`.
 

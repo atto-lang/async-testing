@@ -59,7 +59,7 @@ public final class SourceActorWaitProofTest {
             case "readch" -> "val int answer = readch channel;";
             case "writech" -> "writech channel, 42; val int answer = 42;";
             case "await" -> "val Future<int> pending = nb readch channel; val int answer = await pending;";
-            case "select" -> "let int answer = 0; select { case readch channel: val value answer = value; }";
+            case "select" -> "let int answer = 0; select { when readch channel: val value { answer = value; } }";
             default -> throw new AssertionError(operation);
         };
         String program = """
