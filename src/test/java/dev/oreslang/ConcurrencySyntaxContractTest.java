@@ -35,8 +35,9 @@ final class ConcurrencySyntaxContractTest {
                 actor fnc arm(): void {
                   val Channel<int> input = Channel.new<int>(1);
                   nb select {
-                  case readch input: const value
+                  when readch input: const value {
                     stdio.println(value);
+                  }
                   }
                   stdio.println("turn continues after arming select");
                   return;

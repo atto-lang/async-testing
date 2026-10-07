@@ -37,7 +37,7 @@ final class FormalBufferedChannelTraceRefinementTest {
     }
 
     @Test
-    void closeFencesBufferedChannelPublicAdmissionWithoutInventingDelivery() {
+    void closeRejectsNewWritesAndDrainsAlreadyAdmittedValues() {
         ChannelRuntime.Channel<String> channel =
                 new ChannelRuntime.Channel<>(2);
 
@@ -45,8 +45,10 @@ final class FormalBufferedChannelTraceRefinementTest {
         channel.close();
 
         assertThrows(RuntimeException.class, () -> channel.tryWrite("later"));
+        assertEquals("buffered", channel.tryRead().orElseThrow(),
+                "close preserves values admitted before shutdown");
         assertThrows(RuntimeException.class, channel::tryRead,
-                "public reads are fenced after close even if runtime teardown may drain internally");
+                "the drained closed channel reports closure instead of inventing a delivery");
     }
 
     private static List<List<String>> permutations(String a, String b, String c) {

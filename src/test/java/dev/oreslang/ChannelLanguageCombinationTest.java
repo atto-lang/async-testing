@@ -35,9 +35,9 @@ final class ChannelLanguageCombinationTest {
                   val Channel<int> channel = Channel.new<int>(0);
                   val Future<void> written = nb writech channel, 42;
                   val Array<SelectCase> cases = [SelectCase.read(channel)];
-                  val Future<SelectResult> selected = nb select from cases;
+                  val Future<Option<SelectResult>> selected = nb select from cases;
                   await written;
-                  val result = await selected;
+                  const result = (await selected).unwrap();
                   stdio.stdout.write(result.value);
                   return;
                 }
@@ -52,8 +52,9 @@ final class ChannelLanguageCombinationTest {
                   writech channel, 41;
                   stdio.stdout.write(readch channel);
                   select {
-                  case writech channel, 42:
+                  when writech channel, 42: {
                     stdio.stdout.write(readch channel);
+                  }
                   }
                   return;
                 }
@@ -105,8 +106,9 @@ final class ChannelLanguageCombinationTest {
                 actor fnc worker(): int {
                   val Channel<int> channel = Channel.new<int>(0);
                   nb select {
-                  case readch channel: val value
+                  when readch channel: val value {
                     stdio.stdout.write(value);
+                  }
                   }
                   val Future<void> written = nb writech channel, 42;
                   await written;

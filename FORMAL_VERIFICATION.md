@@ -76,4 +76,4 @@ channel model against the pinned real `ChannelRuntime`:
 - the third immediate write is rejected while two values are buffered;
 - after one read frees capacity, retrying that write succeeds;
 - exactly the three admitted values are delivered exactly once;
-- close fences later public reads/writes without fabricating a delivery.
+- close rejects later writes, permits draining previously admitted buffered values, then reports closure without fabricating another delivery.

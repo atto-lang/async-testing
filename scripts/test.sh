@@ -24,38 +24,37 @@ expected_tree=$(cat compiler-tree.txt)
 # CI may provide a same-repository mirror commit with the identical source tree.
 # Its commit identity differs, but the implementation must match byte-for-byte.
 if [ "$(git -C .compiler rev-parse 'HEAD^{tree}' 2>/dev/null || true)" = "$expected_tree" ]; then
-  git -C .compiler checkout --detach --force HEAD
+  git -C .compiler checkout --detach HEAD
 else
   if ! git -C .compiler cat-file -e "$revision^{commit}" 2>/dev/null; then
     git -C .compiler fetch --depth 1 "$source_url" "$revision"
   fi
-  git -C .compiler checkout --detach --force "$revision"
+  git -C .compiler checkout --detach "$revision"
 fi
 [ "$(git -C .compiler rev-parse 'HEAD^{tree}')" = "$expected_tree" ] || {
   echo "compiler source tree does not match compiler-tree.txt" >&2; exit 1;
 }
 
-# A previous build, ignored file, or local experiment must not participate in
-# an exact-tree proof. Reset tracked state and remove every untracked/ignored
-# path before Maven resolves or compiles the pinned source tree.
-git -C .compiler reset --hard -q HEAD
-git -C .compiler clean -ffdqx
-[ "$(git -C .compiler rev-parse 'HEAD^{tree}')" = "$expected_tree" ] || {
-  echo "compiler tree changed while cleaning checkout" >&2; exit 1;
-}
+# Reject dirty source instead of discarding a developer's changes. Build from
+# an archive of tracked files, so ignored cache files cannot enter compilation.
 if [ -n "$(git -C .compiler status --porcelain --untracked-files=all)" ]; then
-  echo "compiler checkout is dirty after exact-tree reset" >&2
-  git -C .compiler status --short >&2
+  echo "compiler checkout is dirty; preserve changes before building" >&2
   exit 1
 fi
+mkdir -p .work
+build_dir=$(mktemp -d "$root/.work/compiler-build.XXXXXXXX")
+git -C .compiler archive --format=tar --output="$build_dir/source.tar" HEAD
+tar -xf "$build_dir/source.tar" -C "$build_dir"
 
 # Version the installed dependency by commit, avoiding mutable SNAPSHOT collisions.
-(cd .compiler && mvn -B org.codehaus.mojo:versions-maven-plugin:2.18.0:set \
+(cd "$build_dir" && mvn -B org.codehaus.mojo:versions-maven-plugin:2.18.0:set \
   -DnewVersion="$version" -DgenerateBackupPoms=false && mvn -B -DskipTests clean install)
 case "$(uname -s)" in
   Darwin) library=liboresthread.dylib ;;
   Linux) library=liboresthread.so ;;
   *) echo "native carrier tests require Linux or macOS" >&2; exit 1 ;;
 esac
+mkdir -p .compiler/target/native
+cp "$build_dir/target/native/$library" ".compiler/target/native/$library"
 mvn -B "-Dores.thread.native.path=$root/.compiler/target/native/$library" \
   -DtrimStackTrace=false clean test "$@"

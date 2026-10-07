@@ -13,7 +13,7 @@ Install JDK 21 or 25, Maven, Git, and a C compiler on Linux or macOS, then run:
 ```
 
 The script fetches the exact upstream commit in `compiler-revision.txt` into the
-ignored `.compiler/` build cache. It builds the upstream JNI carrier library and
+ignored `.compiler/` build cache. It rejects dirty source, exports tracked files into a fresh ignored `.work/` build directory, builds the upstream JNI carrier library and
 installs the compiler JAR under a commit-specific Maven version, then runs all
 harness tests with that JAR and native library. CI uses the same command on Linux
 and macOS with JDK 21 and 25. No compiler source is copied into this repository.
@@ -47,8 +47,8 @@ commit SHA (`0.1.0-<SHA>` for the Maven version). The script checks that these p
 agree. Publish the matching `compiler-mirror/<SHA>` source tree through the
 GitHub connector, then run `./scripts/test.sh` before submitting the update.
 
-The current pin follows the concurrency integration stack associated with
-upstream PR #269, including the fixes previously carried locally by this harness.
+The current pin follows compiler convergence #431, actor proofs #415, and the
+shared-carrier/host-handle fixes in #432.
 It also retains newer upstream isolation checks. It does not imply that this
 concurrency stack has merged into upstream `main`.
 
@@ -90,15 +90,11 @@ a real channel; it does not simulate the runtime or scheduler.
 
 `ActorGroupMailmanTest` proves serialized CONTROL delivery, sequencing, authority
 boundaries, bounded outbox cleanup, and a mixed SHARED/PRIVATE/UNTRUSTED group.
-The expanded main-stack harness has 178 tests.
+The converged harness has 199 tests, including the seven binding/mailbox acceptance groups.
 
-A separate CI job builds persistent actor compiler commit
-`9e48cc5d73e718e439677f0c564af023052efc8e` (tree
-`f951ae8363f05e328d383f040a7e8fae1e3614fe`) and runs 27 syntax/spawn/group tests.
-The added source Counter executes `spawn`, awaits multiple protocol calls, and
-retains state (`42`, then `50`). That older actor-class implementation is a
-separate stack; these results do not prove persistent classes combined with the
-new channel/select implementation.
+The persistent-actor CI job now uses the same compiler pin and tree as the
+concurrency harness. It runs lexical, spawn, mail-type, shared-code-image and
+actor-state ownership proofs on that converged implementation.
 
 HungryActor remains a standalone dedicated-native-carrier API. Its existing
 carrier and starvation tests pass, but it cannot join ActorRuntime ActorGroups.
@@ -107,4 +103,4 @@ remain implementation gaps, not passing coverage.
 
 ## 2026-10-06 compiler PR compatibility
 
-For the latest 10 upstream Oreslang compiler PRs, see [docs/compiler-pr-sync.md](docs/compiler-pr-sync.md). These features remain unmerged; this repo preserves its existing compiler reference and defaults until exact-SHA integration evidence is available.
+For the latest 10 upstream Oreslang compiler PRs, see [docs/compiler-pr-sync.md](docs/compiler-pr-sync.md). The compiler convergence is merged and the pins now identify its validated successor. The proposal document is historical; current executable coverage is listed in BINDING-AND-MAILBOX-PROOF-MATRIX.md.
