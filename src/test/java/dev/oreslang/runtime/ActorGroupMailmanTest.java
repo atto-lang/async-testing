@@ -20,6 +20,52 @@ import org.junit.jupiter.api.Test;
 
 final class ActorGroupMailmanTest {
     @Test
+    void contextCannotEscapeItsCallbackOrBeReusedByTheNextCallback() throws Exception {
+        try (OresVM vm = OresVM.create(Runnable::run);
+             ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer(),
+                     new ActorRuntime.DispatcherConfig(1, 1, 8, 64),
+                     ActorRuntime.TurnExecutor.direct(), vm::executeControl)) {
+            ActorRuntime.ActorGroup group = runtime.createActorGroup();
+            ActorRuntime.ActorGroupJoinCapability join = group.joinCapability();
+            AtomicReference<ActorGroupContext> captured = new AtomicReference<>();
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            CountDownLatch first = new CountDownLatch(1);
+            CountDownLatch second = new CountDownLatch(1);
+            ActorRuntime.ActorRef<Integer> sink = runtime.spawnShared(() -> (message, context) -> { });
+            group.installMailman(4, (mail, context) -> {
+                try {
+                    assertEquals(group.id(), context.groupId());
+                    if (captured.compareAndSet(null, context)) {
+                        first.countDown();
+                    } else {
+                        ActorGroupContext stale = captured.get();
+                        expectSecurity(stale::groupId, "stale identity capability");
+                        expectSecurity(stale::memberCount, "stale observation capability");
+                        expectSecurity(() -> stale.send(sink, 1), "stale mailbox send capability");
+                        context.send(sink, 2);
+                    }
+                } catch (Throwable problem) {
+                    failure.set(problem);
+                } finally {
+                    if (mail.message().equals(2)) second.countDown();
+                }
+            });
+            ActorRuntime.ActorRef<Integer> emitter = runtime.spawnShared(() -> (message, context) -> {
+                join.join();
+                group.emit(message);
+            });
+            emitter.send(1);
+            assertTrue(first.await(5, TimeUnit.SECONDS));
+            expectSecurity(captured.get()::groupId, "context escaped to host thread");
+            expectSecurity(captured.get()::memberCount, "context escaped to host thread");
+            expectSecurity(() -> captured.get().send(sink, 3), "context escaped to host thread");
+            emitter.send(2);
+            assertTrue(second.await(5, TimeUnit.SECONDS));
+            assertNull(failure.get());
+        }
+    }
+
+    @Test
     void concurrentEmittersUseOneSerializedControlMailmanWithOrderedSequence()
             throws Exception {
         try (OresVM vm = OresVM.create(Runnable::run);
@@ -127,8 +173,13 @@ final class ActorGroupMailmanTest {
 
             CountDownLatch joined = new CountDownLatch(1);
             CountDownLatch checked = new CountDownLatch(1);
+            CountDownLatch replyDelivered = new CountDownLatch(1);
             AtomicReference<Throwable> failure = new AtomicReference<>();
             AtomicReference<ActorRuntime.ActorRef<Integer>> emitterRef = new AtomicReference<>();
+
+            ActorRuntime.ActorRef<Integer> sink = runtime.spawnShared(() -> (message, context) -> {
+                replyDelivered.countDown();
+            });
 
             group.installMailman(8, (mail, context) -> {
                 try {
@@ -147,6 +198,36 @@ final class ActorGroupMailmanTest {
                     expectSecurity(
                             () -> runtime.spawnShared(() -> (message, actor) -> { }),
                             "Mailman must not use host actor construction");
+                    expectSecurity(
+                            () -> emitterRef.get().stop(),
+                            "Mailman must not stop actors through ambient ActorRef authority");
+                    expectSecurity(
+                            () -> emitterRef.get().cancel(),
+                            "Mailman must not cancel actors through ambient ActorRef authority");
+                    expectSecurity(
+                            () -> {
+                                try {
+                                    emitterRef.get().awaitTermination(1, TimeUnit.MILLISECONDS);
+                                } catch (InterruptedException interrupted) {
+                                    Thread.currentThread().interrupt();
+                                    throw new AssertionError(interrupted);
+                                }
+                            },
+                            "Mailman must not synchronously await actor termination");
+                    expectSecurity(
+                            () -> runtime.syncCell(1),
+                            "Mailman must not create shared runtime state outside ActorGroupContext");
+                    expectSecurity(
+                            () -> runtime.shareReadonly(List.of(1)),
+                            "Mailman must not create readonly shared values outside ActorGroupContext");
+                    expectSecurity(
+                            () -> runtime.setActorExitHook(ignored -> { }),
+                            "Mailman must not mutate host actor-exit hooks");
+                    expectSecurity(
+                            group::memberCount,
+                            "Mailman must not use captured ActorGroup authority directly");
+                    assertTrue(context.memberCount() >= 1);
+                    context.send(sink, 1);
                 } catch (Throwable problem) {
                     failure.compareAndSet(null, problem);
                 } finally {
@@ -169,7 +250,74 @@ final class ActorGroupMailmanTest {
             emitter.send(1);
 
             assertTrue(checked.await(5, TimeUnit.SECONDS));
+            assertTrue(replyDelivered.await(5, TimeUnit.SECONDS));
             assertNull(failure.get());
+        }
+    }
+
+    @Test
+    void groupCloseFencesAnAlreadyRunningMailmanFromLateContextSend()
+            throws Exception {
+        try (OresVM vm = OresVM.create(Runnable::run);
+             ActorRuntime runtime = new ActorRuntime(
+                     IsolatePolicy.developer(),
+                     new ActorRuntime.DispatcherConfig(1, 1, 8, 64),
+                     ActorRuntime.TurnExecutor.direct(),
+                     vm::executeControl)) {
+
+            ActorRuntime.ActorGroup group = runtime.createActorGroup();
+            ActorRuntime.ActorGroupJoinCapability join = group.joinCapability();
+            CountDownLatch joined = new CountDownLatch(1);
+            CountDownLatch entered = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            CountDownLatch callbackDone = new CountDownLatch(1);
+            CountDownLatch delivered = new CountDownLatch(1);
+            AtomicReference<Throwable> observed = new AtomicReference<>();
+
+            ActorRuntime.ActorRef<Integer> sink = runtime.spawnShared(() -> (message, context) -> {
+                delivered.countDown();
+            });
+
+            group.installMailman(8, (mail, context) -> {
+                entered.countDown();
+                try {
+                    if (!release.await(5, TimeUnit.SECONDS)) {
+                        observed.set(new AssertionError("test did not release running Mailman"));
+                        return;
+                    }
+                    try {
+                        context.send(sink, 1);
+                        observed.set(new AssertionError(
+                                "closed ActorGroup allowed a running Mailman to send"));
+                    } catch (IllegalStateException expected) {
+                        observed.set(expected);
+                    }
+                } finally {
+                    callbackDone.countDown();
+                }
+            });
+
+            ActorRuntime.ActorRef<Integer> emitter = runtime.spawnShared(() -> (message, context) -> {
+                if (message == 0) {
+                    group.joinCurrent(join);
+                    joined.countDown();
+                } else {
+                    group.emit(message);
+                }
+            });
+
+            emitter.send(0);
+            assertTrue(joined.await(5, TimeUnit.SECONDS));
+            emitter.send(1);
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+
+            group.close();
+            release.countDown();
+
+            assertTrue(callbackDone.await(5, TimeUnit.SECONDS));
+            assertNotNull(observed.get());
+            assertTrue(observed.get() instanceof IllegalStateException);
+            assertEquals(1L, delivered.getCount(), "closed Mailman must not send after group teardown");
         }
     }
 
@@ -244,60 +392,75 @@ final class ActorGroupMailmanTest {
     }
 
     @Test
-    void mixedSharedPrivateAndUntrustedMembersReachTheSameControlMailman() throws Exception {
-        try (OresVM vm = OresVM.create(Runnable::run);
-             ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer(),
-                     new ActorRuntime.DispatcherConfig(1, 1, 8, 64),
-                     ActorRuntime.TurnExecutor.direct(), vm::executeControl)) {
-            var group = runtime.createActorGroup();
-            var join = group.joinCapability();
-            var shared = runtime.<ActorRuntime.ActorGroupId>spawnShared(
-                    () -> ActorGroupMailmanTest::emitAndStop);
-            var isolated = runtime.<ActorRuntime.ActorGroupId>spawnPrivate(
-                    context -> ActorGroupMailmanTest::emitAndStop);
-            var untrusted = runtime.<ActorRuntime.ActorGroupId>spawnUntrusted(
-                    context -> ActorGroupMailmanTest::emitAndStop);
-            Set<ActorRuntime.ActorId> senders = ConcurrentHashMap.newKeySet();
-            CountDownLatch delivered = new CountDownLatch(3);
-            AtomicReference<Throwable> failure = new AtomicReference<>();
-            group.installMailman(8, (mail, context) -> {
-                try {
-                    assertSame(vm.rootScheduler(), OresScheduler.current());
-                    assertTrue(Thread.currentThread().getName().startsWith("ores-control-plane-"));
-                    assertEquals(group.id(), mail.group());
-                    senders.add(mail.actor());
-                    assertEquals("delivered", mail.message());
-                } catch (Throwable problem) { failure.compareAndSet(null, problem); }
-                finally { delivered.countDown(); }
+    void callbackFailureStopsMailmanAndDrainsChannelPayloads() throws Exception {
+        AtomicReference<Runnable> task = new AtomicReference<>();
+        AtomicInteger callbacks = new AtomicInteger();
+        try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer(),
+                new ActorRuntime.DispatcherConfig(1, 1, 8, 64),
+                ActorRuntime.TurnExecutor.direct(), work -> {
+                    task.set(work);
+                    return new OresFuture<>();
+                })) {
+            ActorRuntime.ActorGroup group = runtime.createActorGroup();
+            ActorRuntime.ActorGroupJoinCapability join = group.joinCapability();
+            group.installMailman(3, (mail, context) -> {
+                callbacks.incrementAndGet();
+                throw new IllegalArgumentException("callback failed");
             });
-            for (var actor : List.of(shared, isolated, untrusted)) {
-                group.join(actor, join);
-                actor.send(group.id());
-            }
-            assertTrue(delivered.await(5, TimeUnit.SECONDS));
-            assertNull(failure.get());
-            assertEquals(Set.of(shared.id(), isolated.id(), untrusted.id()), senders);
-            for (var actor : List.of(shared, isolated, untrusted)) {
-                assertTrue(actor.awaitTermination(5, TimeUnit.SECONDS));
-                assertTrue(actor.failure().isEmpty(), actor.failure().toString());
-            }
-            group.close();
-            // Delivery is signalled inside the callback; the active envelope
-            // releases its reservation in the runtime finally block afterward.
-            // Close drains queued mail without interrupting an active callback.
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-            while (runtime.sharedMemoryBytes() != 0L && System.nanoTime() < deadline) {
-                Thread.yield();
-            }
-            assertEquals(0L, runtime.sharedMemoryBytes(),
-                    "active and queued Mailman reservations must eventually release");
+            CountDownLatch emitted = new CountDownLatch(1);
+            ActorRuntime.ActorRef<Integer> emitter = runtime.spawnShared(() -> (message, context) -> {
+                join.join();
+                for (int i = 0; i < 3; i++) group.emit(List.of(i));
+                context.self().stop();
+                emitted.countDown();
+            });
+            emitter.send(0);
+            assertTrue(emitted.await(5, TimeUnit.SECONDS));
+            assertTrue(emitter.awaitTermination(5, TimeUnit.SECONDS));
+            assertEquals(3, group.mailmanOutboxSize());
+            assertTrue(runtime.sharedMemoryBytes() > 0L);
+            task.get().run();
+            assertEquals(1, callbacks.get());
+            assertFalse(group.hasMailman());
+            assertEquals(0, group.mailmanOutboxSize());
+            assertEquals(0L, runtime.sharedMemoryBytes());
         }
     }
 
-    private static void emitAndStop(ActorRuntime.ActorGroupId id,
-                                   ActorRuntime.ActorContext<ActorRuntime.ActorGroupId> context) {
-        context.actorGroup(id).emit("delivered");
-        context.self().stop();
+    @Test
+    void dispatchRejectionReleasesAdmittedPayloadAndStopsMailman() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer(),
+                new ActorRuntime.DispatcherConfig(1, 1, 8, 64),
+                ActorRuntime.TurnExecutor.direct(), work -> {
+                    throw new IllegalStateException("CONTROL admission rejected");
+                })) {
+            ActorRuntime.ActorGroup group = runtime.createActorGroup();
+            ActorRuntime.ActorGroupJoinCapability join = group.joinCapability();
+            group.installMailman(2, (mail, context) -> {
+                throw new AssertionError("rejected dispatch must not invoke callback");
+            });
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            CountDownLatch emitted = new CountDownLatch(1);
+            ActorRuntime.ActorRef<Integer> emitter = runtime.spawnShared(() -> (message, context) -> {
+                join.join();
+                try {
+                    group.emit(List.of(1, 2, 3));
+                } catch (IllegalStateException rejection) {
+                    failure.set(rejection);
+                } finally {
+                    context.self().stop();
+                    emitted.countDown();
+                }
+            });
+            emitter.send(0);
+            assertTrue(emitted.await(5, TimeUnit.SECONDS));
+            assertTrue(emitter.awaitTermination(5, TimeUnit.SECONDS));
+            assertNotNull(failure.get());
+            assertEquals("CONTROL admission rejected", failure.get().getMessage());
+            assertFalse(group.hasMailman());
+            assertEquals(0, group.mailmanOutboxSize());
+            assertEquals(0L, runtime.sharedMemoryBytes());
+        }
     }
 
     private static void expectSecurity(Runnable operation, String message) {

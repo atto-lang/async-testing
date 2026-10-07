@@ -15,6 +15,97 @@ import org.junit.jupiter.api.Test;
 
 final class ActorEventBusTest {
     @Test
+    void reductionTopicsRejectOrdinaryPublicationAndDefinitionConversion() {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            ActorEventBus bus = runtime.createActorGroup().events();
+            bus.defineDoubleReduction("best", ActorEventBus.DoubleReductionKind.MIN, 100);
+            assertThrows(IllegalStateException.class, () -> bus.publish("best", "corrupt"));
+            assertThrows(IllegalStateException.class, () -> bus.publishSystem("best", 200));
+            assertEquals(100, bus.readDoubleReduction("best"));
+            assertEquals(0L, runtime.sharedMemoryBytes());
+            assertTrue(bus.reduceDouble("best", 80).changed());
+            assertEquals(80, bus.readDoubleReduction("best"));
+
+            bus.defineTopic("ordinary", ActorEventBus.DeliveryPolicy.LATEST, 1);
+            assertThrows(IllegalStateException.class, () -> bus.defineDoubleReduction(
+                    "ordinary", ActorEventBus.DoubleReductionKind.MIN, 100));
+            assertDoesNotThrow(() -> bus.publishSystem("ordinary", "still ordinary"));
+            assertThrows(IllegalArgumentException.class, () -> bus.readDoubleReduction("ordinary"));
+        }
+    }
+
+    @Test
+    void pendingReadsAreBoundedAndCancellationAndLeaveReleaseTheirSlots() throws Exception {
+        IsolatePolicy base = IsolatePolicy.developer();
+        IsolatePolicy bounded = new IsolatePolicy(
+                base.capabilities(), base.maxHeapBytes(), 2, base.maxWallTime());
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            ActorRuntime.ActorGroup group = runtime.createActorGroup();
+            ActorRuntime.ActorGroupJoinCapability join = group.joinCapability();
+            group.events().defineTopic("updates", ActorEventBus.DeliveryPolicy.RELIABLE, 1);
+            CountDownLatch done = new CountDownLatch(1);
+            AtomicReference<Throwable> failure = new AtomicReference<>();
+            ActorRuntime.ActorRef<Integer> actor = runtime.spawnShared(bounded, () -> (message, context) -> {
+                try {
+                    join.join();
+                    ActorEventBus.Subscription<Integer> subscription = group.events().subscribe("updates");
+                    long baselineMemory = context.runtime().sharedMemoryBytes();
+                    OresFuture<ActorEventBus.Event<Integer>> first = subscription.readAsync();
+                    OresFuture<ActorEventBus.Event<Integer>> second = subscription.readAsync();
+                    assertThrows(IllegalStateException.class, subscription::readAsync);
+                    assertTrue(first.cancel(false));
+                    OresFuture<ActorEventBus.Event<Integer>> replacement = subscription.readAsync();
+                    group.events().publish("updates", 42).completion().join();
+                    assertEquals(42, second.join().value());
+                    group.leaveCurrent();
+                    assertTrue(replacement.isCompletedExceptionally());
+                    assertTrue(subscription.closed());
+                    assertEquals(baselineMemory, context.runtime().sharedMemoryBytes());
+                } catch (Throwable problem) {
+                    failure.set(problem);
+                } finally {
+                    done.countDown();
+                }
+            });
+            actor.send(1);
+            assertTrue(done.await(5, TimeUnit.SECONDS));
+            assertEquals(null, failure.get());
+        }
+    }
+
+    @Test
+    void cancellingReliableAdmissionReleasesPendingDeliveryAndAllowsReplacement() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            ActorRuntime.ActorGroup group = runtime.createActorGroup();
+            ActorRuntime.ActorGroupJoinCapability join = group.joinCapability();
+            ActorEventBus bus = group.events();
+            bus.defineTopic("reliable", ActorEventBus.DeliveryPolicy.RELIABLE, 1);
+            CountDownLatch subscribed = new CountDownLatch(1);
+            ActorRuntime.ActorRef<Integer> actor = runtime.spawnShared(() -> (message, context) -> {
+                join.join();
+                bus.subscribe("reliable");
+                subscribed.countDown();
+            });
+            actor.send(0);
+            assertTrue(subscribed.await(5, TimeUnit.SECONDS));
+            ActorEventBus.PublishReceipt first = bus.publishSystem("reliable", List.of(1));
+            assertTrue(first.completion().isDone());
+            ActorEventBus.PublishReceipt waiting = bus.publishSystem("reliable", List.of(2));
+            assertFalse(waiting.completion().isDone());
+            assertTrue(waiting.completion().cancel(false));
+            ActorEventBus.PublishReceipt replacement = bus.publishSystem("reliable", List.of(3));
+            assertFalse(replacement.completion().isDone());
+            assertThrows(ActorEventBus.EventBackpressureException.class,
+                    () -> bus.publishSystem("reliable", List.of(4)));
+            group.close();
+            assertTrue(replacement.completion().isCompletedExceptionally());
+            actor.stop();
+            assertTrue(actor.awaitTermination(5, TimeUnit.SECONDS));
+            assertEquals(0L, runtime.sharedMemoryBytes());
+        }
+    }
+
+    @Test
     void cousinsCanJoinOneGroupThroughAForwardedCapability() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime()) {
             ActorRuntime.ActorGroup group = runtime.createActorGroup();
@@ -365,6 +456,102 @@ final class ActorEventBusTest {
             assertTrue(subscriber.awaitTermination(2, TimeUnit.SECONDS));
             assertEquals(0L, runtime.sharedMemoryBytes(),
                     "event payload reservation must be released after the final delivery is consumed");
+        }
+    }
+
+    @Test
+    void closingLatestSubscriptionDrainsUnreadPayloadReservation() throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            ActorRuntime.ActorGroup group = runtime.createActorGroup();
+            ActorRuntime.ActorGroupJoinCapability capability = group.joinCapability();
+            group.events().defineTopic("latest-close", ActorEventBus.DeliveryPolicy.LATEST, 1);
+
+            CountDownLatch subscribed = new CountDownLatch(1);
+            CountDownLatch closed = new CountDownLatch(1);
+            AtomicReference<ActorEventBus.Subscription<List<Integer>>> subscription =
+                    new AtomicReference<>();
+
+            ActorRuntime.ActorRef<String> subscriber = runtime.spawnShared(() -> (message, context) -> {
+                if ("subscribe".equals(message)) {
+                    capability.join();
+                    subscription.set(group.events().subscribe("latest-close"));
+                    subscribed.countDown();
+                    return;
+                }
+                if ("close".equals(message)) {
+                    subscription.get().close();
+                    closed.countDown();
+                    context.self().stop();
+                }
+            });
+
+            subscriber.send("subscribe");
+            assertTrue(subscribed.await(2, TimeUnit.SECONDS));
+
+            group.events().publishSystem(
+                    "latest-close",
+                    new ArrayList<>(List.of(1, 2, 3)));
+            assertTrue(runtime.sharedMemoryBytes() > 0,
+                    "unread queued event must retain its frozen payload reservation");
+
+            subscriber.send("close");
+            assertTrue(closed.await(2, TimeUnit.SECONDS));
+            assertTrue(subscriber.awaitTermination(2, TimeUnit.SECONDS));
+            assertEquals(0L, runtime.sharedMemoryBytes(),
+                    "closing a subscription must drain unread event reservations");
+        }
+    }
+
+    @Test
+    void closingReliableSubscriptionReleasesBufferedAndBackpressuredDeliveries()
+            throws Exception {
+        try (ActorRuntime runtime = new ActorRuntime()) {
+            ActorRuntime.ActorGroup group = runtime.createActorGroup();
+            ActorRuntime.ActorGroupJoinCapability capability = group.joinCapability();
+            group.events().defineTopic("reliable-close", ActorEventBus.DeliveryPolicy.RELIABLE, 1);
+
+            CountDownLatch subscribed = new CountDownLatch(1);
+            CountDownLatch closed = new CountDownLatch(1);
+            AtomicReference<ActorEventBus.Subscription<List<Integer>>> subscription =
+                    new AtomicReference<>();
+
+            ActorRuntime.ActorRef<String> subscriber = runtime.spawnShared(() -> (message, context) -> {
+                if ("subscribe".equals(message)) {
+                    capability.join();
+                    subscription.set(group.events().subscribe("reliable-close"));
+                    subscribed.countDown();
+                    return;
+                }
+                if ("close".equals(message)) {
+                    subscription.get().close();
+                    closed.countDown();
+                    context.self().stop();
+                }
+            });
+
+            subscriber.send("subscribe");
+            assertTrue(subscribed.await(2, TimeUnit.SECONDS));
+
+            ActorEventBus.PublishReceipt buffered = group.events().publishSystem(
+                    "reliable-close",
+                    new ArrayList<>(List.of(1)));
+            assertTrue(buffered.completion().isDone());
+
+            ActorEventBus.PublishReceipt backpressured = group.events().publishSystem(
+                    "reliable-close",
+                    new ArrayList<>(List.of(2)));
+            assertFalse(backpressured.completion().isDone(),
+                    "second reliable delivery should wait behind the full capacity-one channel");
+            assertTrue(runtime.sharedMemoryBytes() > 0);
+
+            subscriber.send("close");
+            assertTrue(closed.await(2, TimeUnit.SECONDS));
+            assertTrue(subscriber.awaitTermination(2, TimeUnit.SECONDS));
+
+            assertTrue(backpressured.completion().isCompletedExceptionally(),
+                    "closing the channel must fail the pending reliable write");
+            assertEquals(0L, runtime.sharedMemoryBytes(),
+                    "both buffered and pending reliable deliveries must release reservations");
         }
     }
 

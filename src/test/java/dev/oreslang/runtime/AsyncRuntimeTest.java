@@ -73,4 +73,23 @@ final class AsyncRuntimeTest {
         assertThrows(java.util.concurrent.RejectedExecutionException.class,
                 () -> runtime.submit(() -> 1));
     }
+    @Test
+    void submitReturnsOresFutureRatherThanCompletableFuture() {
+        try (AsyncRuntime runtime = new AsyncRuntime()) {
+            OresFuture<Integer> future = runtime.submit(() -> 7);
+            assertEquals(OresFuture.class, future.getClass());
+            assertEquals(7, AsyncRuntime.await(future));
+        }
+    }
+
+    @Test
+    void hostCompletionStageIsOneWayAdaptedIntoOresFuture() {
+        CompletableFuture<Integer> host = new CompletableFuture<>();
+        OresFuture<Integer> ores = OresFuture.from(host);
+
+        host.complete(9);
+
+        assertEquals(9, AsyncRuntime.await(ores));
+    }
+
 }

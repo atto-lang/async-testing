@@ -23,6 +23,19 @@ final class ChannelRuntimeTest {
     }
 
     @Test
+    void shutdownDrainReleasesBufferedValuesAndStopsAtClosedEmptyChannel() {
+        ChannelRuntime.Channel<String> channel = new ChannelRuntime.Channel<>(2);
+        assertTrue(channel.tryWrite("one"));
+        assertTrue(channel.tryWrite("two"));
+        channel.close();
+        java.util.List<String> drained = new java.util.ArrayList<>();
+        assertTrue(channel.drainOne(drained::add));
+        assertTrue(channel.drainOne(drained::add));
+        assertFalse(channel.drainOne(drained::add));
+        assertEquals(java.util.List.of("one", "two"), drained);
+    }
+
+    @Test
     void bufferedChannelIsFifo() {
         ChannelRuntime.Channel<String> channel = new ChannelRuntime.Channel<>(2);
 
@@ -41,6 +54,7 @@ final class ChannelRuntimeTest {
         OresFuture<String> pending = channel.readAsync();
 
         assertTrue(pending.cancel(false));
+        assertTrue(pending.isCancelled());
         assertThrows(CancellationException.class, pending::join);
 
         assertTrue(channel.tryWrite("kept"));
@@ -146,6 +160,64 @@ final class ChannelRuntimeTest {
     }
 
     @Test
+    void twoPendingSelectsCanRendezvousOnUnbufferedChannel() {
+        ChannelRuntime.Channel<Integer> channel =
+                new ChannelRuntime.Channel<>(0);
+
+        OresFuture<ChannelRuntime.SelectResult> writer =
+                ChannelRuntime.SelectSet.of(
+                                ChannelRuntime.write(channel, 123))
+                        .selectAsync(ChannelRuntime.SelectPolicy.PRIORITY);
+        assertFalse(writer.isDone());
+
+        OresFuture<ChannelRuntime.SelectResult> reader =
+                ChannelRuntime.SelectSet.of(
+                                ChannelRuntime.read(channel))
+                        .selectAsync(ChannelRuntime.SelectPolicy.PRIORITY);
+
+        assertEquals(123, reader.join().value());
+        assertEquals(
+                ChannelRuntime.SelectOperation.WRITE,
+                writer.join().operation());
+        assertTrue(channel.tryRead().isEmpty());
+    }
+
+    @Test
+    void selectToSelectRendezvousCommitsExactlyOneArmPerSelection() {
+        ChannelRuntime.Channel<Integer> rendezvous =
+                new ChannelRuntime.Channel<>(0);
+        ChannelRuntime.Channel<Integer> alternate =
+                new ChannelRuntime.Channel<>(1);
+        alternate.tryWrite(77);
+
+        ChannelRuntime.SelectSet readerSet =
+                ChannelRuntime.SelectSet.of(
+                        ChannelRuntime.read(rendezvous),
+                        ChannelRuntime.read(alternate));
+        OresFuture<ChannelRuntime.SelectResult> reader =
+                readerSet.selectAsync(ChannelRuntime.SelectPolicy.PRIORITY);
+
+        OresFuture<ChannelRuntime.SelectResult> writer =
+                ChannelRuntime.SelectSet.of(
+                                ChannelRuntime.write(rendezvous, 99))
+                        .selectAsync(ChannelRuntime.SelectPolicy.PRIORITY);
+
+        ChannelRuntime.SelectResult result = reader.join();
+        if (result.index() == 0) {
+            assertEquals(99, result.value());
+            assertEquals(77, alternate.tryRead().orElseThrow());
+            assertEquals(
+                    ChannelRuntime.SelectOperation.WRITE,
+                    writer.join().operation());
+        } else {
+            assertEquals(77, result.value());
+            assertFalse(writer.isDone());
+            assertTrue(writer.cancel(false));
+            assertTrue(rendezvous.tryRead().isEmpty());
+        }
+    }
+
+    @Test
     void dynamicSelectCanBeBuiltFromListsAndMaps() {
         ChannelRuntime.Channel<String> one = new ChannelRuntime.Channel<>(1);
         ChannelRuntime.Channel<String> two = new ChannelRuntime.Channel<>(1);
@@ -165,6 +237,67 @@ final class ChannelRuntimeTest {
 
         assertEquals(0,
                 mapSet.selectAsync(ChannelRuntime.SelectPolicy.PRIORITY).join().index());
+    }
+
+
+    @Test
+    void selectPlanReusesDescriptorsButCreatesIndependentOperations() {
+        ChannelRuntime.Channel<String> channel = new ChannelRuntime.Channel<>(1);
+        ChannelRuntime.SelectPlan plan = ChannelRuntime.SelectPlan.of(
+                ChannelRuntime.read(channel));
+
+        channel.tryWrite("first");
+        ChannelRuntime.SelectResult first = plan.selectAsync().join();
+        assertEquals("first", first.value());
+
+        OresFuture<ChannelRuntime.SelectResult> second = plan.selectAsync();
+        assertFalse(second.isDone());
+        assertTrue(second.cancel(false));
+
+        channel.tryWrite("second");
+        assertThrows(CancellationException.class, second::join);
+        assertEquals("second", channel.tryRead().orElseThrow());
+    }
+
+    @Test
+    void selectPlanPreservesFairRotationAcrossRepeatedExecutions() {
+        ChannelRuntime.Channel<String> first = new ChannelRuntime.Channel<>(1);
+        ChannelRuntime.Channel<String> second = new ChannelRuntime.Channel<>(1);
+        ChannelRuntime.SelectPlan plan = ChannelRuntime.SelectPlan.of(
+                ChannelRuntime.read(first),
+                ChannelRuntime.read(second));
+
+        first.tryWrite("a1");
+        second.tryWrite("b1");
+        assertEquals(0, plan.selectAsync(ChannelRuntime.SelectPolicy.FAIR).join().index());
+
+        first.tryWrite("a2");
+        assertEquals(1, plan.selectAsync(ChannelRuntime.SelectPolicy.FAIR).join().index());
+    }
+
+    @Test
+    void selectPlanCanBeAssembledDynamicallyWithoutChangingSelectSetPath() {
+        ChannelRuntime.Channel<String> first = new ChannelRuntime.Channel<>(1);
+        ChannelRuntime.Channel<String> second = new ChannelRuntime.Channel<>(1);
+        second.tryWrite("ready");
+
+        java.util.ArrayList<ChannelRuntime.SelectCase> dynamicCases =
+                new java.util.ArrayList<>();
+        dynamicCases.add(ChannelRuntime.read(first));
+        dynamicCases.add(ChannelRuntime.read(second));
+
+        ChannelRuntime.SelectPlan plan = ChannelRuntime.SelectPlan.from(dynamicCases);
+        assertEquals(
+                1,
+                plan.trySelect(ChannelRuntime.SelectPolicy.PRIORITY)
+                        .orElseThrow()
+                        .index());
+
+        // The original SelectSet API remains independently usable.
+        first.tryWrite("legacy");
+        ChannelRuntime.SelectSet original = ChannelRuntime.SelectSet.of(
+                ChannelRuntime.read(first));
+        assertEquals("legacy", original.selectAsync().join().value());
     }
 
     @Test
@@ -191,6 +324,29 @@ final class ChannelRuntimeTest {
         assertEquals(
                 ChannelRuntime.SelectOperation.WRITE,
                 selected.join().operation());
+    }
+
+    @Test
+    void fairSelectRotatesPastClosedArmAfterTerminalFailure() {
+        ChannelRuntime.Channel<String> closed =
+                new ChannelRuntime.Channel<>(1);
+        ChannelRuntime.Channel<String> ready =
+                new ChannelRuntime.Channel<>(1);
+        closed.close();
+        ready.tryWrite("value");
+
+        ChannelRuntime.SelectSet set = ChannelRuntime.SelectSet.of(
+                ChannelRuntime.read(closed),
+                ChannelRuntime.read(ready));
+
+        assertThrows(
+                RuntimeException.class,
+                () -> set.selectAsync(ChannelRuntime.SelectPolicy.FAIR).join());
+
+        ChannelRuntime.SelectResult next =
+                set.selectAsync(ChannelRuntime.SelectPolicy.FAIR).join();
+        assertEquals(1, next.index());
+        assertEquals("value", next.value());
     }
 
     @Test

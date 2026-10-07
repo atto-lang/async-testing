@@ -16,6 +16,38 @@ import static org.junit.jupiter.api.Assertions.*;
 final class OresSchedulerTest {
 
     @Test
+    void rejectedGuestContextAdmissionSettlesTheOwningTask() throws Exception {
+        IllegalStateException failure = new IllegalStateException("guest context entry rejected");
+        try (OresScheduler scheduler = OresScheduler.managed(1, runnable -> { throw failure; })) {
+            OresFuture<Integer> task = scheduler.start(resume -> OresScheduler.done(42));
+            var observed = assertThrows(java.util.concurrent.ExecutionException.class,
+                    () -> task.get(5, TimeUnit.SECONDS));
+            assertSame(failure, observed.getCause());
+        }
+    }
+
+    @Test
+    void mixedLinkageScopeSurvivesResumeWithoutLeakingToOtherTasks() throws Exception {
+        try (OresScheduler scheduler = new OresScheduler(1)) {
+            OresFuture<Integer> gate = new OresFuture<>();
+            AtomicInteger state = new AtomicInteger();
+            OresFuture<Object> task;
+            try (var scope = dev.oreslang.interop.MixedInteropBridge.open(java.util.Map.of(
+                    "unit", (name, args) -> 42))) {
+                task = scheduler.start(resume -> {
+                    if (state.getAndIncrement() == 0) return OresScheduler.await(gate);
+                    return OresScheduler.done(dev.oreslang.interop.MixedInteropBridge.invoke("unit", "answer"));
+                });
+            }
+            gate.completeFromRuntime(1);
+            assertEquals(42, task.get(5, TimeUnit.SECONDS));
+            assertTrue(dev.oreslang.interop.MixedInteropBridge.capture().isEmpty());
+            assertTrue(scheduler.start(resume -> OresScheduler.done(
+                    dev.oreslang.interop.MixedInteropBridge.capture().isEmpty())).get(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     void awaitResumesOnlyOnOwningSchedulerNotProducerThread() throws Exception {
         try (OresScheduler scheduler = new OresScheduler(2)) {
             OresFuture<Integer> source = new OresFuture<>();
@@ -146,6 +178,100 @@ final class OresSchedulerTest {
 
             assertEquals(awaits, result.get(10, TimeUnit.SECONDS));
             assertEquals(awaits + 1, state.get());
+        }
+    }
+
+    @Test
+    void cooperateAlwaysCreatesFreshDispatchWithoutAllocatingFuture() throws Exception {
+        try (OresScheduler scheduler = new OresScheduler(1)) {
+            AtomicInteger pc = new AtomicInteger();
+            AtomicReference<Thread> firstCarrier = new AtomicReference<>();
+            AtomicLong firstDispatch = new AtomicLong();
+            AtomicReference<Object> firstTaskDomain = new AtomicReference<>();
+
+            OresFuture<Integer> result = scheduler.start(resume -> {
+                int step = pc.getAndIncrement();
+                if (step == 0) {
+                    assertTrue(resume.initial());
+                    firstCarrier.set(Thread.currentThread());
+                    firstDispatch.set(OresScheduler.currentDispatchId());
+                    firstTaskDomain.set(OresScheduler.currentTaskDomain());
+                    return OresScheduler.cooperate();
+                }
+
+                assertFalse(resume.initial());
+                assertNull(resume.value());
+                assertNull(resume.failure());
+                assertSame(firstCarrier.get(), Thread.currentThread(),
+                        "one-carrier scheduler may reuse the same physical carrier");
+                assertNotEquals(firstDispatch.get(), OresScheduler.currentDispatchId(),
+                        "cooperate must resume through a fresh logical dispatch");
+                assertSame(firstTaskDomain.get(), OresScheduler.currentTaskDomain(),
+                        "cooperate must preserve logical task identity");
+                return OresScheduler.done(42);
+            });
+
+            assertEquals(42, result.get(5, TimeUnit.SECONDS));
+            assertEquals(2, pc.get());
+        }
+    }
+
+    @Test
+    void manyCooperatesRemainStacklessAndMakeProgress() throws Exception {
+        final int cooperates = 1024;
+        try (OresScheduler scheduler = new OresScheduler(1)) {
+            AtomicInteger pc = new AtomicInteger();
+            AtomicLong previousDispatch = new AtomicLong();
+
+            OresFuture<Integer> result = scheduler.start(resume -> {
+                long dispatch = OresScheduler.currentDispatchId();
+                long prior = previousDispatch.getAndSet(dispatch);
+                if (prior != 0L) {
+                    assertNotEquals(prior, dispatch,
+                            "every cooperate must establish a fresh dispatch");
+                }
+
+                int step = pc.getAndIncrement();
+                if (step < cooperates) return OresScheduler.cooperate();
+                return OresScheduler.done(step);
+            });
+
+            assertEquals(cooperates, result.get(10, TimeUnit.SECONDS));
+            assertEquals(cooperates + 1, pc.get());
+        }
+    }
+
+    @Test
+    void defaultCooperateQueuesBehindAlreadyRunnablePeerWork() throws Exception {
+        try (OresScheduler scheduler = new OresScheduler(1)) {
+            java.util.List<String> order =
+                    java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+            CountDownLatch firstTurnEntered = new CountDownLatch(1);
+            CountDownLatch peerQueued = new CountDownLatch(1);
+            AtomicInteger aPc = new AtomicInteger();
+
+            OresFuture<Void> a = scheduler.start(resume -> {
+                if (aPc.getAndIncrement() == 0) {
+                    order.add("a1");
+                    firstTurnEntered.countDown();
+                    assertTrue(peerQueued.await(5, TimeUnit.SECONDS));
+                    return OresScheduler.cooperate();
+                }
+                order.add("a2");
+                return OresScheduler.done(null);
+            });
+
+            assertTrue(firstTurnEntered.await(5, TimeUnit.SECONDS));
+            OresFuture<Void> b = scheduler.start(resume -> {
+                order.add("b");
+                return OresScheduler.done(null);
+            });
+            peerQueued.countDown();
+
+            a.get(5, TimeUnit.SECONDS);
+            b.get(5, TimeUnit.SECONDS);
+            assertEquals(java.util.List.of("a1", "b", "a2"), order,
+                    "default cooperate must requeue behind already-runnable work");
         }
     }
 
