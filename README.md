@@ -104,3 +104,7 @@ HungryActor remains a standalone dedicated-native-carrier API. Its existing
 carrier and starvation tests pass, but it cannot join ActorRuntime ActorGroups.
 Hungry group membership and unified persistent-class/channel lowering therefore
 remain implementation gaps, not passing coverage.
+
+## 2026-10-06 compiler PR compatibility
+
+For the latest 10 upstream Oreslang compiler PRs, see [docs/compiler-pr-sync.md](docs/compiler-pr-sync.md). These features remain unmerged; this repo preserves its existing compiler reference and defaults until exact-SHA integration evidence is available.
