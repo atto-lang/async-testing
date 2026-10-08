@@ -11,7 +11,7 @@
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <!-- Keep in sync with compiler-revision.txt; scripts/test.sh checks the pin. -->
-    <oreslang.version>0.1.0-5ffc52d9297d175307094d530293c69f1cafc7cd</oreslang.version>
+    <oreslang.version>0.1.0-3f709fbf59abb2c13313725d2d648e6b560b17b8</oreslang.version>
     <junit.version>5.11.4</junit.version>
   </properties>
   <dependencies>
