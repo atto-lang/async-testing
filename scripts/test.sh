@@ -13,6 +13,13 @@ grep -Fq "<oreslang.version>$version</oreslang.version>" pom.xml || {
   echo "pom.xml and compiler-revision.txt disagree" >&2; exit 1;
 }
 source_url=${ORESLANG_SOURCE_URL:-https://github.com/ores-truffle-oreslang/oreslang-source.java.git}
+# Preserve developer caches before any checkout/fetch can switch their HEAD.
+if [ -L .compiler ]; then
+  echo "compiler cache must not be a symlink" >&2; exit 1
+fi
+if [ -d .compiler/.git ] && [ -n "$(git -C .compiler status --porcelain --untracked-files=all)" ]; then
+  echo "compiler checkout is dirty; preserving HEAD and local changes" >&2; exit 1
+fi
 # .compiler is a disposable build cache owned by this script.
 if [ ! -d .compiler/.git ]; then
   if [ -e .compiler ]; then
@@ -21,6 +28,10 @@ if [ ! -d .compiler/.git ]; then
   git init -q .compiler
 fi
 expected_tree=$(cat compiler-tree.txt)
+case "$expected_tree" in
+  *[!0-9a-f]*|'') echo "invalid compiler tree" >&2; exit 1 ;;
+esac
+[ "${#expected_tree}" -eq 40 ] || { echo "compiler tree must be a full SHA" >&2; exit 1; }
 # CI may provide a same-repository mirror commit with the identical source tree.
 # Its commit identity differs, but the implementation must match byte-for-byte.
 if [ "$(git -C .compiler rev-parse 'HEAD^{tree}' 2>/dev/null || true)" = "$expected_tree" ]; then
