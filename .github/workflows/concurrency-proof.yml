@@ -22,10 +22,19 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Read upstream compiler pin
         id: compiler
-        run: echo "revision=$(cat compiler-revision.txt)" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision="$(cat compiler-revision.txt)"
+          tree="$(cat compiler-tree.txt)"
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid compiler commit pin' >&2; exit 1; }
+          [[ "$tree" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid compiler tree pin' >&2; exit 1; }
+          printf 'revision=%s\n' "$revision" >> "$GITHUB_OUTPUT"
 
       # A source-only mirror lives in this repository. The default GITHUB_TOKEN
       # can read it; scripts/test.sh verifies its exact upstream source tree.
@@ -66,7 +75,14 @@ jobs:
           persist-credentials: false
       - name: Read converged compiler pin
         id: compiler
-        run: echo "revision=$(cat compiler-revision.txt)" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision="$(cat compiler-revision.txt)"
+          tree="$(cat compiler-tree.txt)"
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid compiler commit pin' >&2; exit 1; }
+          [[ "$tree" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid compiler tree pin' >&2; exit 1; }
+          printf 'revision=%s\n' "$revision" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: compiler-mirror/${{ steps.compiler.outputs.revision }}
