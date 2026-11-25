@@ -1,4 +1,10 @@
+> **AI agent instructions (organization-wide):** Before working on code, issues, or pull requests, read and follow the [organization `AGENTS.md`](https://github.com/ores-truffle-oreslang/.github/blob/main/AGENTS.md), including its **merge-first stealth-development policy**. Honor any repository-local `AGENTS.md`, explicit holds, and GitHub-enforced rules.
+
 # Oreslang Async / Actor / Channel Proof Harness
+
+## AttoLang organization naming note (2026-11-18)
+
+This supporting tool/fork is hosted under the historical Oreslang organization. **AttoLang** is the current public name of the language (formerly Oreslang); its [language specification](https://github.com/atto-lang/atto-spec), [organization](https://github.com/atto-lang), and [portable conformance tests](https://github.com/atto-lang/atto-platform-conformance) live under `atto-lang`. This note **does not rename this independent tool, change its upstream identity, or imply a one-to-one AttoLang repository successor**. Preserve its own supported commands, scope and attribution below.
 
 This repository tests the real Oreslang compiler/runtime as a Maven dependency.
 It contains concurrency proofs only; compiler, runtime, and native carrier sources
@@ -27,25 +33,15 @@ mvn -Dores.thread.native.path="$PWD/.compiler/target/native/liboresthread.dylib"
 Use `liboresthread.so` on Linux. The native library must come from the same
 upstream checkout as the JAR.
 
-## CI source mirror
+## CI compiler checkout
 
-CI checks out `compiler-mirror/<upstream-SHA>` from this same repository using
-its ordinary `GITHUB_TOKEN`. That branch contains an immutable source-only
-snapshot, outside the harness's main branch. `compiler-tree.txt` records the
-upstream Git tree; the script rejects a mirror unless that tree matches exactly.
-No cross-repository secret or token is required. Local runs can still fetch the
-original compiler using existing Git authentication.
-
-The alternate-org validation carrier uses the same mirror technique so it can
-build with its own Actions allocation. Mirror branches are test transport, not a
-second implementation: fixes remain upstream and mirrors are replaced by pin.
+CI checks out the exact public [Atto Java compiler](https://github.com/atto-lang/atto-source.java) revision recorded in `compiler-revision.txt`. The harness verifies its Git tree against `compiler-tree.txt` before building. No cross-repository secret or token is required. For private compiler revisions, use an authorized private test carrier with a verified same-repository source mirror; never publish private source as a CI workaround.
 
 ## Updating the compiler
 
 Commit implementation fixes to `oreslang-source.java`, then update `compiler-revision.txt`, `compiler-tree.txt`, and `oreslang.version` in `pom.xml` to the full upstream
 commit SHA (`0.1.0-<SHA>` for the Maven version). The script checks that these pins
-agree. Publish the matching `compiler-mirror/<SHA>` source tree through the
-GitHub connector, then run `./scripts/test.sh` before submitting the update.
+agree. Confirm the pinned commit and tree are accessible to the runner, then run `./scripts/test.sh` before submitting the update.
 
 The current pin follows compiler convergence #431, actor proofs #415, and the
 shared-carrier/host-handle fixes in #432.
@@ -104,3 +100,13 @@ remain implementation gaps, not passing coverage.
 ## 2026-10-06 compiler PR compatibility
 
 For the latest 10 upstream Oreslang compiler PRs, see [docs/compiler-pr-sync.md](docs/compiler-pr-sync.md). The compiler convergence is merged and the pins now identify its validated successor. The proposal document is historical; current executable coverage is listed in BINDING-AND-MAILBOX-PROOF-MATRIX.md.
+
+## Repository ownership and migration
+
+**Public name:** AttoLang (formerly Oreslang). This harness is now hosted at [atto-lang/async-testing](https://github.com/atto-lang/async-testing). The legacy repository is archived; the destination is a separate repository identity, not evidence of an in-place GitHub transfer. Preserve established `.ores` inputs and legacy tool/package names until their compatibility is independently validated.
+
+- **Scope:** structured-concurrency, cancellation, task/actor/channel/select test fixtures and independent receipts.
+- **Not this repo:** backend scheduler implementations or source-free guest-test claims.
+- **Ownership:** [atto-lang](https://github.com/atto-lang) is the canonical home for specs, compilers, portable core/std, developer tooling, conformance and ecosystem examples. [atto-co](https://github.com/atto-co) separately governs managed infrastructure. Existing repositories are not automatically transferred source identities.
+
+For future transfers, document the source and destination repository IDs, immutable head SHA/tree, rollback owner, protections, access, PRs/releases, Actions/runners, packages, deploy keys, Apps, webhooks, Pages and consumers. Obtain the appropriate source/target and security authorization; never publish private source as a CI workaround. Verify the destination tree and execute the relevant CI before claiming parity. **Zero-step jobs are NOT_EXECUTED; host-only or source-free probes are not compiler-backed AttoLang guest receipts.** Move package/import names only after validated cutover.
