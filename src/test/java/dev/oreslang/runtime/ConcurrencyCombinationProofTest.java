@@ -281,25 +281,27 @@ final class ConcurrencyCombinationProofTest {
     }
 
     @Test
-    void oneShotCallableKeepsPendingContinuationAliveAndAllowsPoolProgress() throws Exception {
+    void asyncCallableKeepsExplicitCompletionAliveAndAllowsPoolProgress() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer(),
                 new ActorRuntime.DispatcherConfig(1, 1, 1));
              ChannelRuntime.Channel<Integer> channel = new ChannelRuntime.Channel<>(0);
              ExecutorService host = Executors.newSingleThreadExecutor()) {
             CountDownLatch armed = new CountDownLatch(1);
             AtomicReference<Thread> callback = new AtomicReference<>();
-            Future<Integer> invocation = host.submit(() -> runtime.invoke(ActorRuntime.ActorKind.SHARED,
+            OresFuture<Integer> invocation = runtime.invokeAsync(ActorRuntime.ActorKind.SHARED,
                     "arm", (message, context) -> {
+                        OresFuture<Integer> completion = new OresFuture<>();
                         runtime.enqueueOnCompletion(channel.readAsync(), runtime.captureCurrentContinuationTarget(),
                                 (value, error) -> {
                                     assertNull(error);
                                     assertEquals(42, value);
                                     assertEquals(context.self().id(), ActorRuntime.currentActorId().orElseThrow());
                                     callback.set(Thread.currentThread());
+                                    completion.completeFromRuntime(7);
                                 });
                         armed.countDown();
-                        return 7;
-                    }));
+                        return completion;
+                    });
             assertTrue(armed.await(2, TimeUnit.SECONDS));
             assertEquals(1, runtime.actorCount(), "callable owns a pending continuation");
             assertFalse(invocation.isDone());
@@ -319,17 +321,22 @@ final class ConcurrencyCombinationProofTest {
     }
 
     @Test
-    void oneShotContinuationFailureIsReportedToCaller() {
+    void asyncCallableReportsExplicitCompletionFailureToCaller() {
         try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer(),
                 new ActorRuntime.DispatcherConfig(1, 1, 1))) {
             IllegalStateException original = new IllegalStateException("callback failed");
-            IllegalStateException observed = assertThrows(IllegalStateException.class,
-                    () -> runtime.invoke(ActorRuntime.ActorKind.SHARED, "arm", (message, context) -> {
+            OresFuture<Integer> invocation = runtime.invokeAsync(ActorRuntime.ActorKind.SHARED,
+                    "arm", (message, context) -> {
+                        OresFuture<Integer> completion = new OresFuture<>();
                         runtime.enqueueOnCompletion(OresFuture.completed(1),
-                                runtime.captureCurrentContinuationTarget(), (value, failure) -> { throw original; });
-                        return 7;
-                    }));
-            assertSame(original, observed);
+                                runtime.captureCurrentContinuationTarget(), (value, failure) -> {
+                                    completion.failFromRuntime(original);
+                                });
+                        return completion;
+                    });
+            ExecutionException observed = assertThrows(ExecutionException.class,
+                    () -> invocation.get(2, TimeUnit.SECONDS));
+            assertSame(original, observed.getCause());
             assertEquals(0, runtime.actorCount());
         }
     }
@@ -400,7 +407,7 @@ final class ConcurrencyCombinationProofTest {
     }
 
     @Test
-    void multipleContinuationsOnSameFutureRemainOwnedUntilEveryCallbackDrains() throws Exception {
+    void explicitCompletionWaitsForBothContinuationsOnSameFuture() throws Exception {
         CountDownLatch releaseSecond = new CountDownLatch(1);
         try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer(),
                 new ActorRuntime.DispatcherConfig(1, 1, 1));
@@ -409,8 +416,9 @@ final class ConcurrencyCombinationProofTest {
             CountDownLatch armed = new CountDownLatch(1);
             CountDownLatch firstRan = new CountDownLatch(1);
             AtomicInteger calls = new AtomicInteger();
-            Future<Integer> invocation = host.submit(() -> runtime.invoke(ActorRuntime.ActorKind.SHARED,
+            OresFuture<Integer> invocation = runtime.invokeAsync(ActorRuntime.ActorKind.SHARED,
                     "arm", (message, context) -> {
+                        OresFuture<Integer> completion = new OresFuture<>();
                         OresFuture<Integer> pending = channel.readAsync();
                         ActorRuntime.ContinuationTarget target = runtime.captureCurrentContinuationTarget();
                         runtime.enqueueOnCompletion(pending, target, (value, failure) -> {
@@ -425,10 +433,11 @@ final class ConcurrencyCombinationProofTest {
                         runtime.enqueueOnCompletion(pending, target, (value, failure) -> {
                             assertNull(failure);
                             calls.incrementAndGet();
+                            completion.completeFromRuntime(7);
                         });
                         armed.countDown();
-                        return 7;
-                    }));
+                        return completion;
+                    });
             try {
                 assertTrue(armed.await(2, TimeUnit.SECONDS));
                 Future<Boolean> writer = host.submit(() -> channel.tryWrite(42));
