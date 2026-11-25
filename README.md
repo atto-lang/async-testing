@@ -1,4 +1,10 @@
+> **AI agent instructions (organization-wide):** Before working on code, issues, or pull requests, read and follow the [organization `AGENTS.md`](https://github.com/ores-truffle-oreslang/.github/blob/main/AGENTS.md), including its **merge-first stealth-development policy**. Honor any repository-local `AGENTS.md`, explicit holds, and GitHub-enforced rules.
+
 # Oreslang Async / Actor / Channel Proof Harness
+
+## AttoLang organization naming note (2026-11-18)
+
+This supporting tool/fork is hosted under the historical Oreslang organization. **AttoLang** is the current public name of the language (formerly Oreslang); its [language specification](https://github.com/atto-lang/atto-spec), [organization](https://github.com/atto-lang), and [portable conformance tests](https://github.com/atto-lang/atto-platform-conformance) live under `atto-lang`. This note **does not rename this independent tool, change its upstream identity, or imply a one-to-one AttoLang repository successor**. Preserve its own supported commands, scope and attribution below.
 
 This repository tests the real Oreslang compiler/runtime as a Maven dependency.
 It contains concurrency proofs only; compiler, runtime, and native carrier sources
@@ -105,13 +111,12 @@ remain implementation gaps, not passing coverage.
 
 For the latest 10 upstream Oreslang compiler PRs, see [docs/compiler-pr-sync.md](docs/compiler-pr-sync.md). The compiler convergence is merged and the pins now identify its validated successor. The proposal document is historical; current executable coverage is listed in BINDING-AND-MAILBOX-PROOF-MATRIX.md.
 
-## Repository ownership and migration (2026-11-08)
+## Repository ownership and migration
 
-**Public name:** AttoLang (formerly Oreslang). This remains `ores-truffle-oreslang/async-testing` until a real authorized repo transfer. Preserve established `.ores` inputs and old tool/package names; do not claim feature parity from a branding or README change.
+**Public name:** AttoLang (formerly Oreslang). This harness is now hosted at [atto-lang/async-testing](https://github.com/atto-lang/async-testing). The legacy repository is archived; the destination is a separate repository identity, not evidence of an in-place GitHub transfer. Preserve established `.ores` inputs and legacy tool/package names until their compatibility is independently validated.
 
 - **Scope:** structured-concurrency, cancellation, task/actor/channel/select test fixtures and independent receipts.
-- **Not this repo:** actual backend scheduler implementations or source-free guest-test claims.
-- **Where code belongs:** [atto-lang](https://github.com/atto-lang) is the canonical home for specs, compilers, portable core/std, developer tooling, conformance and ecosystem examples. [atto-co](https://github.com/atto-co) separately governs deployment, identity, billing, tenant hosting and other managed infrastructure. Existing `atto-*` repos are not automatically transferred source identities.
-- **Planned first-stage destination (not approved/executed):** `atto-lang/async-testing`, under the same name and GitHub numeric repository ID. Direct legacy-org → `atto-co` transfers are not authorized in this wave; future product carve-outs require separate review.
+- **Not this repo:** backend scheduler implementations or source-free guest-test claims.
+- **Ownership:** [atto-lang](https://github.com/atto-lang) is the canonical home for specs, compilers, portable core/std, developer tooling, conformance and ecosystem examples. [atto-co](https://github.com/atto-co) separately governs managed infrastructure. Existing repositories are not automatically transferred source identities.
 
-**Migration checklist:** announce precise repo/head/rollback owner in [coordination issue #26](https://github.com/ores-truffle-oreslang/.github/issues/26); use private [migration plan #25](https://github.com/ores-truffle-oreslang/.github/pull/25). Obtain source/target admins and independent security signoff, verify target availability/protections/access, capture numeric repo ID and exact head SHA/tree, PRs/releases, Actions/runners/secrets, packages, deploy keys, GitHub Apps, webhooks, Pages and consumers. Never clone private source into a new org to bypass approval. Confirm stable identity/history/tree after authorized GitHub transfer and rerun exact-head CI at destination. **Zero-step jobs (`steps=[]` or `null`) are `NOT_EXECUTED`; host-only or source-free probes are not compiler-backed AttoLang guest receipts.** Move package/import references and names only after validated cutover.
+For future transfers, document the source and destination repository IDs, immutable head SHA/tree, rollback owner, protections, access, PRs/releases, Actions/runners, packages, deploy keys, Apps, webhooks, Pages and consumers. Obtain the appropriate source/target and security authorization; never publish private source as a CI workaround. Verify the destination tree and execute the relevant CI before claiming parity. **Zero-step jobs are NOT_EXECUTED; host-only or source-free probes are not compiler-backed AttoLang guest receipts.** Move package/import names only after validated cutover.
