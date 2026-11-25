@@ -110,3 +110,13 @@ remain implementation gaps, not passing coverage.
 ## 2026-10-06 compiler PR compatibility
 
 For the latest 10 upstream Oreslang compiler PRs, see [docs/compiler-pr-sync.md](docs/compiler-pr-sync.md). The compiler convergence is merged and the pins now identify its validated successor. The proposal document is historical; current executable coverage is listed in BINDING-AND-MAILBOX-PROOF-MATRIX.md.
+
+## Repository ownership and migration
+
+**Public name:** AttoLang (formerly Oreslang). This harness is now hosted at [atto-lang/async-testing](https://github.com/atto-lang/async-testing). The legacy repository is archived; the destination is a separate repository identity, not evidence of an in-place GitHub transfer. Preserve established `.ores` inputs and legacy tool/package names until their compatibility is independently validated.
+
+- **Scope:** structured-concurrency, cancellation, task/actor/channel/select test fixtures and independent receipts.
+- **Not this repo:** backend scheduler implementations or source-free guest-test claims.
+- **Ownership:** [atto-lang](https://github.com/atto-lang) is the canonical home for specs, compilers, portable core/std, developer tooling, conformance and ecosystem examples. [atto-co](https://github.com/atto-co) separately governs managed infrastructure. Existing repositories are not automatically transferred source identities.
+
+For future transfers, document the source and destination repository IDs, immutable head SHA/tree, rollback owner, protections, access, PRs/releases, Actions/runners, packages, deploy keys, Apps, webhooks, Pages and consumers. Obtain the appropriate source/target and security authorization; never publish private source as a CI workaround. Verify the destination tree and execute the relevant CI before claiming parity. **Zero-step jobs are NOT_EXECUTED; host-only or source-free probes are not compiler-backed AttoLang guest receipts.** Move package/import names only after validated cutover.
