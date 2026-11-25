@@ -284,11 +284,10 @@ final class ConcurrencyCombinationProofTest {
     void asyncCallableKeepsExplicitCompletionAliveAndAllowsPoolProgress() throws Exception {
         try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer(),
                 new ActorRuntime.DispatcherConfig(1, 1, 1));
-             ChannelRuntime.Channel<Integer> channel = new ChannelRuntime.Channel<>(0);
-             ExecutorService host = Executors.newSingleThreadExecutor()) {
+             ChannelRuntime.Channel<Integer> channel = new ChannelRuntime.Channel<>(0)) {
             CountDownLatch armed = new CountDownLatch(1);
             AtomicReference<Thread> callback = new AtomicReference<>();
-            OresFuture<Integer> invocation = runtime.invokeAsync(ActorRuntime.ActorKind.SHARED,
+            OresFuture<Object> invocation = runtime.invokeAsync(ActorRuntime.ActorKind.SHARED,
                     "arm", (message, context) -> {
                         OresFuture<Integer> completion = new OresFuture<>();
                         runtime.enqueueOnCompletion(channel.readAsync(), runtime.captureCurrentContinuationTarget(),
@@ -325,7 +324,7 @@ final class ConcurrencyCombinationProofTest {
         try (ActorRuntime runtime = new ActorRuntime(IsolatePolicy.developer(),
                 new ActorRuntime.DispatcherConfig(1, 1, 1))) {
             IllegalStateException original = new IllegalStateException("callback failed");
-            OresFuture<Integer> invocation = runtime.invokeAsync(ActorRuntime.ActorKind.SHARED,
+            OresFuture<Object> invocation = runtime.invokeAsync(ActorRuntime.ActorKind.SHARED,
                     "arm", (message, context) -> {
                         OresFuture<Integer> completion = new OresFuture<>();
                         runtime.enqueueOnCompletion(OresFuture.completed(1),
@@ -416,7 +415,7 @@ final class ConcurrencyCombinationProofTest {
             CountDownLatch armed = new CountDownLatch(1);
             CountDownLatch firstRan = new CountDownLatch(1);
             AtomicInteger calls = new AtomicInteger();
-            OresFuture<Integer> invocation = runtime.invokeAsync(ActorRuntime.ActorKind.SHARED,
+            OresFuture<Object> invocation = runtime.invokeAsync(ActorRuntime.ActorKind.SHARED,
                     "arm", (message, context) -> {
                         OresFuture<Integer> completion = new OresFuture<>();
                         OresFuture<Integer> pending = channel.readAsync();
@@ -450,7 +449,7 @@ final class ConcurrencyCombinationProofTest {
                 });
                 actor.send("ping");
                 assertTrue(progress.await(2, TimeUnit.SECONDS));
-                assertFalse(invocation.isDone(), "second registration must still own the callable");
+                assertFalse(invocation.isDone(), "explicit completion must await the second callback");
                 releaseSecond.countDown();
                 assertTrue(writer.get(2, TimeUnit.SECONDS));
                 assertEquals(7, invocation.get(2, TimeUnit.SECONDS));
