@@ -12,7 +12,7 @@ version="0.1.0-$revision"
 grep -Fq "<oreslang.version>$version</oreslang.version>" pom.xml || {
   echo "pom.xml and compiler-revision.txt disagree" >&2; exit 1;
 }
-source_url=${ORESLANG_SOURCE_URL:-https://github.com/ores-truffle-oreslang/oreslang-source.java.git}
+source_url=${ORESLANG_SOURCE_URL:-https://github.com/atto-lang/atto-source.java.git}
 # Preserve developer caches before any checkout/fetch can switch their HEAD.
 if [ -L .compiler ]; then
   echo "compiler cache must not be a symlink" >&2; exit 1

@@ -112,6 +112,17 @@ are executable here. A real secondary Graal/native isolation domain must still d
 physical revocation before this harness can claim hard isolate kill rather than runtime-level
 bulkheading.
 
+### 4. Host one-shot callback lifetime
+
+The pinned Java runtime's synchronous host `invoke` stops the actor when its
+body returns; arbitrary detached host callbacks are not implicitly joined.
+The async bridge `invokeAsync` accepts an explicit completion Future and
+finalizes only after that Future settles. New runtime tests exercise peer
+progress while this completion is pending, both registrations on the same
+producer, and explicit failure propagation. They do not prove implicit
+detached-host-callback draining or failure propagation for synchronous invoke.
+Guest callback execution is independently exercised by source tests.
+
 ## Acceptance rule
 
 A feature moves from **contract gap** to **proven** only when:

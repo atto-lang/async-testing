@@ -33,25 +33,15 @@ mvn -Dores.thread.native.path="$PWD/.compiler/target/native/liboresthread.dylib"
 Use `liboresthread.so` on Linux. The native library must come from the same
 upstream checkout as the JAR.
 
-## CI source mirror
+## CI compiler checkout
 
-CI checks out `compiler-mirror/<upstream-SHA>` from this same repository using
-its ordinary `GITHUB_TOKEN`. That branch contains an immutable source-only
-snapshot, outside the harness's main branch. `compiler-tree.txt` records the
-upstream Git tree; the script rejects a mirror unless that tree matches exactly.
-No cross-repository secret or token is required. Local runs can still fetch the
-original compiler using existing Git authentication.
-
-The alternate-org validation carrier uses the same mirror technique so it can
-build with its own Actions allocation. Mirror branches are test transport, not a
-second implementation: fixes remain upstream and mirrors are replaced by pin.
+CI checks out the exact public [Atto Java compiler](https://github.com/atto-lang/atto-source.java) revision recorded in `compiler-revision.txt`. The harness verifies its Git tree against `compiler-tree.txt` before building. No cross-repository secret or token is required. For private compiler revisions, use an authorized private test carrier with a verified same-repository source mirror; never publish private source as a CI workaround.
 
 ## Updating the compiler
 
 Commit implementation fixes to `oreslang-source.java`, then update `compiler-revision.txt`, `compiler-tree.txt`, and `oreslang.version` in `pom.xml` to the full upstream
 commit SHA (`0.1.0-<SHA>` for the Maven version). The script checks that these pins
-agree. Publish the matching `compiler-mirror/<SHA>` source tree through the
-GitHub connector, then run `./scripts/test.sh` before submitting the update.
+agree. Confirm the pinned commit and tree are accessible to the runner, then run `./scripts/test.sh` before submitting the update.
 
 The current pin follows compiler convergence #431, actor proofs #415, and the
 shared-carrier/host-handle fixes in #432.
